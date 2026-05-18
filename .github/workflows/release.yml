@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build release archive
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install runtime tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux zip
+
+      - name: Verify
+        run: |
+          bash -n bin/agentdock install.sh tests/smoke.sh
+          bash tests/smoke.sh
+
+      - name: Package
+        run: |
+          pkg="agentdock-${GITHUB_REF_NAME}"
+          mkdir -p "dist/${pkg}"
+          cp -R README.md VERSION install.sh bin adapters tests "dist/${pkg}/"
+          tar -C dist -czf "dist/${pkg}.tar.gz" "${pkg}"
+          (cd dist && zip -qr "${pkg}.zip" "${pkg}")
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: AgentDock ${{ github.ref_name }}
+          body: |
+            AgentDock ${{ github.ref_name }}
+
+            Hermes-only tmux workrooms for local multi-agent coding teams.
+
+            Install:
+
+            ```bash
+            curl -L https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/agentdock-${{ github.ref_name }}.tar.gz
+            ```
+          files: |
+            dist/*.tar.gz
+            dist/*.zip

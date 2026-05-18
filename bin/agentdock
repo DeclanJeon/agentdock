@@ -1,0 +1,1611 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+AGENTDOCK_VERSION="0.1.0"
+DEFAULT_AGENT_CLI="hermes"
+CLI_NAME="$(basename "$0")"
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+if command -v readlink >/dev/null 2>&1; then
+  SCRIPT_PATH="$(readlink -f "$SCRIPT_PATH")"
+fi
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+INSTALL_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ADAPTER_DIR="$INSTALL_ROOT/adapters"
+ROLE_TEMPLATE_DIR="$INSTALL_ROOT/roles/bmad"
+AGENTDOCK_ROLE_TEMPLATE_DIR="$INSTALL_ROOT/roles/agentdock"
+USER_ADAPTER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/agentdock/adapters"
+USER_ROLE_TEMPLATE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/agentdock/roles/bmad"
+USER_AGENTDOCK_ROLE_TEMPLATE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/agentdock/roles/agentdock"
+
+err() { printf 'agentdock: %s\n' "$*" >&2; }
+die() { err "$*"; exit 1; }
+say() { printf '%s\n' "$*"; }
+have() { command -v "$1" >/dev/null 2>&1; }
+quote() { printf "%q" "$1"; }
+
+usage() {
+  cat <<EOF
+AgentDock - local multi-agent tmux workrooms
+
+Usage:
+  $CLI_NAME <command> [options]
+
+Commands:
+  version                 Print version
+  help                    Print this help
+  doctor [--json]         Detect system tools, Hermes, and project state
+  setup [--cli hermes]    Install missing runtime dependencies
+  cli list [--json]       List adapter registry
+  cli add ...             Add a custom adapter
+  roles list|sync bmad    List or sync role templates
+  install <tool|cli>      Preview/run a dependency or AI CLI install command
+  init                    Initialize .agentdock and .agent-work
+  role add <id>           Add a project role
+  assign <role> [--cli hermes]        Assign a role to Hermes
+  recruit <role> [role...] [--template <id>] Add/start Hermes roles in the running team
+  team                    Show configured roles
+  start                   Launch tmux runtime (default starts every configured role)
+  stop                    Stop tmux runtime
+  task "..."              Create and dispatch a job
+  delegate "..."          CEO/Hermes-facing alias: create and dispatch a job
+  send <role> "..."       Send a message to a running role
+  report                  Summarize project state
+  update                  Print update guidance
+  uninstall               Print uninstall guidance
+EOF
+}
+
+sanitize_id() {
+  local value="${1,,}"
+  value="${value// /-}"
+  value="$(printf '%s' "$value" | tr -cd 'a-z0-9_-')"
+  value="${value:0:64}"
+  [[ -n "$value" ]] && printf '%s' "$value" || printf 'agent'
+}
+
+sanitize_session() {
+  local value="${1,,}"
+  value="${value// /-}"
+  value="$(printf '%s' "$value" | tr -cd 'a-z0-9_.-')"
+  value="${value:0:80}"
+  [[ -n "$value" ]] && printf '%s-agents' "$value" || printf 'agentdock-agents'
+}
+
+normalize_agent_ids() {
+  local value="$1" token
+  local -a ids=()
+  local -A seen
+  for token in $value; do
+    [[ -n "$token" ]] || continue
+    token="$(sanitize_id "$token")"
+    [[ -n "$token" ]] || continue
+    [[ -n "${seen[$token]:-}" ]] && continue
+    seen["$token"]=1
+    ids+=("$token")
+  done
+  printf '%s' "${ids[*]}"
+}
+
+project_root_arg() {
+  local project=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --project) project="${2:-}"; shift 2 ;;
+      --project=*) project="${1#*=}"; shift ;;
+      *) shift ;;
+    esac
+  done
+  [[ -n "$project" ]] && (cd "$project" && pwd) || pwd
+}
+
+adapter_files() {
+  find "$ADAPTER_DIR" "$USER_ADAPTER_DIR" -maxdepth 1 -name '*.conf' -type f 2>/dev/null | sort
+}
+
+load_adapter() {
+  local id="$1" file=""
+  file="$ADAPTER_DIR/$id.conf"
+  [[ -f "$USER_ADAPTER_DIR/$id.conf" ]] && file="$USER_ADAPTER_DIR/$id.conf"
+  [[ -f "$file" ]] || return 1
+  ADAPTER_ID= ADAPTER_DISPLAY_NAME= ADAPTER_BINARIES= ADAPTER_VERSION_CMD=
+  ADAPTER_INSTALL_METHODS= ADAPTER_INSTALL_NPM= ADAPTER_INSTALL_BREW=
+  ADAPTER_INSTALL_SCRIPT= ADAPTER_INSTALL_CUSTOM= ADAPTER_RUN_CMD= ADAPTER_NOTES=
+  # Adapter files are trusted built-ins or user-owned files under ~/.config/agentdock.
+  # shellcheck source=/dev/null
+  source "$file"
+}
+
+ensure_runtime_cli_allowed() {
+  local cli="$1"
+  [[ "$cli" == "$DEFAULT_AGENT_CLI" ]] || die "AgentDock runtime is Hermes-only; use --cli $DEFAULT_AGENT_CLI or configure the hermes adapter."
+}
+
+hermes_install_guidance() {
+  cat <<'EOF'
+Hermes is required for AgentDock runtime roles.
+Install Hermes Agent from:
+  https://github.com/nousresearch/hermes-agent
+
+Official Linux/macOS/WSL2/Termux install:
+  curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
+
+After install, reload your shell and verify:
+  hermes --version
+EOF
+}
+
+detect_adapter() {
+  local id="$1" bin path version="missing"
+  load_adapter "$id" || return 1
+  for bin in $ADAPTER_BINARIES; do
+    if path="$(command -v "$bin" 2>/dev/null)"; then
+      version=""
+      if [[ -n "${ADAPTER_VERSION_CMD:-}" ]]; then
+        version="$(eval "$ADAPTER_VERSION_CMD" 2>/dev/null | head -1 || true)"
+      fi
+      printf '%s\tinstalled\t%s\t%s\n' "$id" "$path" "${version:-unknown}"
+      return 0
+    fi
+  done
+  printf '%s\tmissing\t\t\n' "$id"
+}
+
+pick_installed_cli() {
+  local id status found version
+  for id in "$DEFAULT_AGENT_CLI"; do
+    IFS=$'\t' read -r _ status found version < <(detect_adapter "$id" || printf '%s\tmissing\t\t\n' "$id")
+    [[ "$status" == installed ]] && { printf '%s\n' "$id"; return 0; }
+  done
+  return 1
+}
+
+resolved_cli() {
+  local requested="${1:-}" resolved=""
+  if [[ -n "$requested" ]]; then
+    requested="$(sanitize_id "$requested")"
+    ensure_runtime_cli_allowed "$requested"
+  fi
+  if [[ -n "$requested" ]] && load_adapter "$requested"; then
+    printf '%s\n' "$requested"
+    return 0
+  fi
+  resolved="$(pick_installed_cli || true)"
+  [[ -n "$resolved" ]] && { printf '%s\n' "$resolved"; return 0; }
+  printf '%s\n' "$DEFAULT_AGENT_CLI"
+  return 0
+}
+
+resolved_cli_cmd() {
+  local cli="$1"
+  if load_adapter "$cli"; then
+    printf '%s\n' "$ADAPTER_RUN_CMD"
+    return 0
+  fi
+  printf '%s\n' "$cli"
+  return 1
+}
+
+set_role_runtime() {
+  local root="$1" role="$2" cli="$3"
+  local file="$root/.agentdock/config.runtime" var cmd
+  var="AGENT_${role//-/_}"
+  local tmp="$file.tmp"
+  cmd="$(resolved_cli_cmd "$cli")"
+  awk -v var="$var" -v cli="$cli" -v cmd="$cmd" '
+    $0 ~ "^"var"_CLI=" { print var"_CLI=\""cli"\""; next }
+    $0 ~ "^"var"_CMD=" { print var"_CMD=\""cmd"\""; next }
+    { print }
+  ' "$file" > "$tmp"
+  mv "$tmp" "$file"
+}
+
+adapter_ids() {
+  local f
+  for f in $(adapter_files); do basename "$f" .conf; done | awk '!seen[$0]++'
+}
+
+canonical_role_template_id() {
+  local id
+  id="$(sanitize_id "${1:-}")"
+  case "$id" in
+    ceo|chief-executive|chief-executive-officer|orchestrator|agentdock-ceo) id="agentdock-ceo" ;;
+    cto|chief-technology|chief-technology-officer|technical-director|agentdock-cto) id="agentdock-cto" ;;
+    marketing|marketer|growth|growth-marketing|agentdock-marketing) id="agentdock-marketing" ;;
+    planning|planner|project-planner|product-planner|pm-planner|agentdock-planner) id="agentdock-planner" ;;
+    qa|quality|quality-assurance|tester|test-architect|agentdock-qa) id="agentdock-qa" ;;
+    analyst|mary|bmad-analyst) id="bmad-analyst" ;;
+    pm|product-manager|john|bmad-pm) id="bmad-pm" ;;
+    architect|winston|bmad-architect) id="bmad-architect" ;;
+    dev|developer|engineer|amelia|bmad-agent-dev) id="bmad-agent-dev" ;;
+    ux|ui|ui-designer|ux-designer|designer|sally|bmad-ux-designer) id="bmad-ux-designer" ;;
+    writer|tech-writer|technical-writer|paige|bmad-tech-writer) id="bmad-tech-writer" ;;
+    *) return 1 ;;
+  esac
+  printf '%s\n' "$id"
+}
+
+role_template_file() {
+  local id
+  id="$(canonical_role_template_id "${1:-}")" || return 1
+  if [[ "$id" == agentdock-* ]]; then
+    if [[ -f "$USER_AGENTDOCK_ROLE_TEMPLATE_DIR/$id.md" ]]; then
+      printf '%s\n' "$USER_AGENTDOCK_ROLE_TEMPLATE_DIR/$id.md"
+      return 0
+    fi
+    [[ -f "$AGENTDOCK_ROLE_TEMPLATE_DIR/$id.md" ]] || return 1
+    printf '%s\n' "$AGENTDOCK_ROLE_TEMPLATE_DIR/$id.md"
+    return 0
+  fi
+  if [[ -f "$USER_ROLE_TEMPLATE_DIR/$id.md" ]]; then
+    printf '%s\n' "$USER_ROLE_TEMPLATE_DIR/$id.md"
+    return 0
+  fi
+  [[ -f "$ROLE_TEMPLATE_DIR/$id.md" ]] || return 1
+  printf '%s\n' "$ROLE_TEMPLATE_DIR/$id.md"
+}
+
+role_template_body() {
+  local id
+  id="$(canonical_role_template_id "${1:-}")" || return 1
+  case "$id" in
+    agentdock-ceo) cat <<'EOF'
+# CEO Orchestrator
+
+Use: job intake, team design, role naming, delegation, lifecycle ownership, final delivery accountability.
+
+Source: AgentDock supplemental role template. BMAD default BMM does not currently ship a CEO agent.
+EOF
+      ;;
+    agentdock-cto) cat <<'EOF'
+# CTO / Technical Director
+
+Use: technical strategy, architecture review, risk tradeoffs, implementation sequencing, engineering standards, cross-team technical decisions.
+
+Source: AgentDock supplemental role template. BMAD default BMM maps part of this work to Architect (Winston), but does not currently ship a CTO agent.
+EOF
+      ;;
+    agentdock-marketing) cat <<'EOF'
+# Marketing Strategist
+
+Use: positioning, target audience, messaging, launch plan, growth channels, competitive framing, campaign requirements.
+
+Source: AgentDock supplemental role template. BMAD default BMM does not currently ship a marketing agent.
+EOF
+      ;;
+    agentdock-planner) cat <<'EOF'
+# Planning / Delivery Manager
+
+Use: roadmap slicing, milestone planning, dependency tracking, task sequencing, scope control, delivery coordination.
+
+Source: AgentDock supplemental role template. BMAD default BMM maps product planning to Product Manager (John), but does not currently ship a separate planning agent.
+EOF
+      ;;
+    agentdock-qa) cat <<'EOF'
+# QA / Quality Engineer
+
+Use: test strategy, acceptance validation, regression planning, bug reproduction, release-readiness checks, risk-based verification.
+
+Source: AgentDock supplemental role template. BMAD default BMM provides QA test generation through Developer (Amelia); enterprise test architecture lives in BMAD's separate TEA module.
+EOF
+      ;;
+    bmad-analyst) cat <<'EOF'
+# Analyst (Mary)
+
+Use: discovery, brainstorming, market/domain/technical research, project brief, PRFAQ challenge, document project.
+
+Source: BMAD Method default BMM agent catalog.
+EOF
+      ;;
+    bmad-pm) cat <<'EOF'
+# Product Manager (John)
+
+Use: PRD creation/validation/editing, epics and stories, implementation readiness, course correction.
+
+Source: BMAD Method default BMM agent catalog.
+EOF
+      ;;
+    bmad-architect) cat <<'EOF'
+# Architect (Winston)
+
+Use: architecture design, technical direction, implementation readiness.
+
+Source: BMAD Method default BMM agent catalog.
+EOF
+      ;;
+    bmad-agent-dev) cat <<'EOF'
+# Developer (Amelia)
+
+Use: dev story execution, quick dev, QA test generation, code review, sprint planning, story creation, retrospective.
+
+Source: BMAD Method default BMM agent catalog.
+EOF
+      ;;
+    bmad-ux-designer) cat <<'EOF'
+# UX Designer (Sally)
+
+Use: UX design creation and interaction planning.
+
+Source: BMAD Method default BMM agent catalog.
+EOF
+      ;;
+    bmad-tech-writer) cat <<'EOF'
+# Technical Writer (Paige)
+
+Use: document project, write/update docs, standards, Mermaid diagrams, doc validation, concept explanation.
+
+Source: BMAD Method default BMM agent catalog.
+EOF
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+write_bmad_role_templates() {
+  local dir="$1" source_note="${2:-BMAD Method default BMM agent catalog.}" id
+  mkdir -p "$dir"
+  for id in bmad-agent-dev bmad-analyst bmad-architect bmad-pm bmad-tech-writer bmad-ux-designer; do
+    role_template_body "$id" | sed "s|^Source: .*|Source: $source_note|" > "$dir/$id.md"
+  done
+}
+
+write_agentdock_role_templates() {
+  local dir="$1" id
+  mkdir -p "$dir"
+  for id in agentdock-ceo agentdock-cto agentdock-marketing agentdock-planner agentdock-qa; do
+    role_template_body "$id" > "$dir/$id.md"
+  done
+}
+
+print_builtin_roles() {
+  printf '%-24s %-24s %-12s %s\n' "bmad-agent-dev" "Developer (Amelia)" "BMAD" "dev story execution, quick dev, QA test generation, code review, sprint planning, story creation, retrospective."
+  printf '%-24s %-24s %-12s %s\n' "bmad-analyst" "Analyst (Mary)" "BMAD" "discovery, brainstorming, market/domain/technical research, project brief, PRFAQ challenge, document project."
+  printf '%-24s %-24s %-12s %s\n' "bmad-architect" "Architect (Winston)" "BMAD" "architecture design, technical direction, implementation readiness."
+  printf '%-24s %-24s %-12s %s\n' "bmad-pm" "Product Manager (John)" "BMAD" "PRD creation/validation/editing, epics and stories, implementation readiness, course correction."
+  printf '%-24s %-24s %-12s %s\n' "bmad-tech-writer" "Technical Writer (Paige)" "BMAD" "document project, write/update docs, standards, Mermaid diagrams, doc validation, concept explanation."
+  printf '%-24s %-24s %-12s %s\n' "bmad-ux-designer" "UX Designer (Sally)" "BMAD" "UX/UI design creation and interaction planning."
+  printf '%-24s %-24s %-12s %s\n' "agentdock-ceo" "CEO Orchestrator" "AgentDock" "job intake, team design, delegation, lifecycle ownership, final delivery."
+  printf '%-24s %-24s %-12s %s\n' "agentdock-cto" "CTO / Technical Director" "AgentDock" "technical strategy, architecture review, engineering standards, sequencing."
+  printf '%-24s %-24s %-12s %s\n' "agentdock-marketing" "Marketing Strategist" "AgentDock" "positioning, audience, messaging, launch and growth channels."
+  printf '%-24s %-24s %-12s %s\n' "agentdock-planner" "Planning Manager" "AgentDock" "roadmap slicing, milestones, dependencies, delivery coordination."
+  printf '%-24s %-24s %-12s %s\n' "agentdock-qa" "QA / Quality Engineer" "AgentDock" "test strategy, regression planning, bug reproduction, release readiness."
+}
+
+cmd_roles() {
+  local sub="${1:-list}" file
+  case "$sub" in
+    list)
+      printf '%-24s %-24s %-12s %s\n' "Template" "Role" "Source" "Use"
+      print_builtin_roles
+      ;;
+    sync)
+      shift || true
+      local source="${1:-bmad}" url="https://docs.bmad-method.org/reference/agents/" yes=0 offline=0 content=""
+      [[ "$source" == "bmad" ]] || die "usage: agentdock roles sync bmad [--yes] [--offline] [--url <url>]"
+      shift || true
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --yes) yes=1; shift ;;
+          --offline) offline=1; shift ;;
+          --url) url="${2:-$url}"; shift 2 ;;
+          *) shift ;;
+        esac
+      done
+      if [[ "$yes" != 1 ]]; then
+        read -r -p "Sync BMAD role templates into $USER_ROLE_TEMPLATE_DIR? [y/N] " answer
+        [[ "$answer" == "y" || "$answer" == "Y" ]] || die "cancelled"
+      fi
+      if [[ "$offline" != 1 ]]; then
+        have curl || die "curl is required for BMAD sync. Rerun with --offline to install bundled templates."
+        content="$(curl -fsSL "$url")" || die "failed to fetch BMAD agents from $url"
+        printf '%s' "$content" | grep -q 'bmad-agent-dev' || die "BMAD source did not contain expected agent IDs: $url"
+        write_bmad_role_templates "$USER_ROLE_TEMPLATE_DIR" "Synced from $url"
+      else
+        write_bmad_role_templates "$USER_ROLE_TEMPLATE_DIR" "Bundled BMAD fallback"
+      fi
+      say "Synced BMAD role templates to $USER_ROLE_TEMPLATE_DIR"
+      ;;
+    *) die "usage: agentdock roles list|sync bmad" ;;
+  esac
+}
+
+package_manager() {
+  if have apt-get; then printf '%s\n' apt
+  elif have brew; then printf '%s\n' brew
+  elif have dnf; then printf '%s\n' dnf
+  elif have yum; then printf '%s\n' yum
+  elif have pacman; then printf '%s\n' pacman
+  elif have apk; then printf '%s\n' apk
+  elif have zypper; then printf '%s\n' zypper
+  elif have pkg; then printf '%s\n' pkg
+  else return 1
+  fi
+}
+
+system_install_cmd() {
+  local tool="$1" pm packages
+  pm="$(package_manager || true)"
+  [[ -n "$pm" ]] || return 1
+  case "$tool" in
+    tmux) packages="tmux" ;;
+    node|nodejs|npm)
+      case "$pm" in
+        brew) packages="node" ;;
+        *) packages="nodejs npm" ;;
+      esac ;;
+    git) packages="git" ;;
+    *) return 1 ;;
+  esac
+
+  case "$pm" in
+    apt) printf 'sudo apt-get update && sudo apt-get install -y %s\n' "$packages" ;;
+    brew) printf 'brew install %s\n' "$packages" ;;
+    dnf) printf 'sudo dnf install -y %s\n' "$packages" ;;
+    yum) printf 'sudo yum install -y %s\n' "$packages" ;;
+    pacman) printf 'sudo pacman -Sy --needed --noconfirm %s\n' "$packages" ;;
+    apk) printf 'sudo apk add %s\n' "$packages" ;;
+    zypper) printf 'sudo zypper install -y %s\n' "$packages" ;;
+    pkg) printf 'pkg install -y %s\n' "$packages" ;;
+    *) return 1 ;;
+  esac
+}
+
+run_install_command() {
+  local cmd="$1" yes="$2"
+  say "Install command: $cmd"
+  if [[ "$yes" != 1 ]]; then
+    read -r -p "Run this command? [y/N] " answer
+    [[ "$answer" == "y" || "$answer" == "Y" ]] || die "cancelled"
+  fi
+  eval "$cmd"
+}
+
+ensure_system_tool() {
+  local tool="$1" yes="$2" cmd
+  if have "$tool"; then
+    say "OK  $tool already installed: $(command -v "$tool")"
+    return 0
+  fi
+  cmd="$(system_install_cmd "$tool" || true)"
+  [[ -n "$cmd" ]] || die "no supported installer found for $tool. Install it manually, then rerun agentdock doctor."
+  run_install_command "$cmd" "$yes"
+  have "$tool" || die "$tool is still missing after install command"
+}
+
+install_adapter() {
+  local id="$1" method="$2" yes="$3"
+  load_adapter "$id" || die "unknown adapter: $id"
+  [[ -n "$method" ]] || method="${ADAPTER_INSTALL_METHODS%% *}"
+  if [[ "$method" == "npm" ]]; then
+    ensure_system_tool npm "$yes"
+  fi
+  local var cmd
+  var="ADAPTER_INSTALL_${method^^}"
+  cmd="${!var:-}"
+  [[ -n "$cmd" ]] || die "no install command for $id method $method"
+  run_install_command "$cmd" "$yes"
+  local status found version
+  IFS=$'\t' read -r _ status found version < <(detect_adapter "$id")
+  if [[ "$status" != installed ]]; then
+    [[ "$id" == "$DEFAULT_AGENT_CLI" ]] && hermes_install_guidance >&2
+    die "$id is still missing after install command. Configure the $id command, then rerun agentdock doctor."
+  fi
+  printf '%s\t%s\t%s\t%s\n' "$id" "$status" "$found" "$version"
+}
+
+cmd_doctor() {
+  local json=0 project
+  [[ "${1:-}" == "--json" ]] && json=1
+  project="$(project_root_arg "$@")"
+  if [[ "$json" == 1 ]]; then
+    printf '{"system":{'
+    local first=1 tool path
+    for tool in git tmux bash node npm; do
+      [[ $first == 0 ]] && printf ','
+      first=0
+      path="$(command -v "$tool" 2>/dev/null || true)"
+      printf '"%s":{"installed":%s,"path":"%s"}' "$tool" "$([[ -n "$path" ]] && echo true || echo false)" "$path"
+    done
+    printf '},"agent_cli":{'
+    local id="$DEFAULT_AGENT_CLI" status found version
+    IFS=$'\t' read -r _ status found version < <(detect_adapter "$id")
+    printf '"%s":{"status":"%s","path":"%s","version":"%s"}' "$id" "$status" "$found" "$version"
+    printf '},"project":{"root":"%s","initialized":%s}}\n' "$project" "$([[ -f "$project/.agentdock/config.runtime" ]] && echo true || echo false)"
+    return
+  fi
+  say "AgentDock Doctor"
+  say ""
+  say "System:"
+  local tool path
+  for tool in git tmux bash node npm; do
+    path="$(command -v "$tool" 2>/dev/null || true)"
+    [[ -n "$path" ]] && printf 'OK  %-8s %s\n' "$tool" "$path" || printf 'MISS %-8s\n' "$tool"
+  done
+  say ""
+  say "Agent CLI:"
+  local id="$DEFAULT_AGENT_CLI" status found version
+  IFS=$'\t' read -r _ status found version < <(detect_adapter "$id")
+  [[ "$status" == installed ]] && printf 'OK  %-10s installed %s %s\n' "$id" "$found" "$version" || printf 'MISS %-10s missing\n' "$id"
+  say "Other AI CLI adapters are ignored by the runtime; use: agentdock cli list"
+  say ""
+	  if [[ -f "$project/.agentdock/config.runtime" ]]; then
+	    say "Project: initialized at $project"
+	  else
+	    say "Project: not initialized. Run: agentdock init"
+	  fi
+	  if ! have tmux || ! pick_installed_cli >/dev/null 2>&1; then
+	    say ""
+	    say "Setup:"
+	    say "Run: agentdock setup --yes"
+	    say "Default agent CLI: $DEFAULT_AGENT_CLI"
+	  fi
+	}
+
+cmd_setup() {
+  local cli="$DEFAULT_AGENT_CLI" cli_set=0 method="" yes=0 skip_cli=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --cli) cli="$(sanitize_id "${2:-$DEFAULT_AGENT_CLI}")"; cli_set=1; shift 2 ;;
+      --method) method="${2:-}"; shift 2 ;;
+      --yes) yes=1; shift ;;
+      --skip-cli) skip_cli=1; shift ;;
+      *) shift ;;
+    esac
+  done
+
+  ensure_runtime_cli_allowed "$cli"
+  ensure_system_tool tmux "$yes"
+  if [[ "$skip_cli" == 1 ]]; then
+    cmd_doctor
+    return
+  fi
+
+  local installed status found version
+  if [[ "$cli_set" == 0 ]]; then
+    installed="$(pick_installed_cli || true)"
+    if [[ -n "$installed" ]]; then
+      IFS=$'\t' read -r _ status found version < <(detect_adapter "$installed")
+      say "OK  AI CLI already installed: $installed $found"
+      say "AgentDock is Hermes-first; non-Hermes CLIs are not selected automatically."
+      cmd_doctor
+      return
+    fi
+  fi
+
+  IFS=$'\t' read -r _ status found version < <(detect_adapter "$cli" || printf '%s\tmissing\t\t\n' "$cli")
+  if [[ "$status" == installed ]]; then
+    say "OK  $cli already installed: $found"
+  else
+    if [[ "$cli" == "$DEFAULT_AGENT_CLI" ]]; then
+      hermes_install_guidance
+      say ""
+    fi
+    install_adapter "$cli" "$method" "$yes"
+  fi
+  cmd_doctor
+}
+
+cmd_cli_list() {
+  local json=0
+  [[ "${1:-}" == "--json" ]] && json=1
+  if [[ "$json" == 1 ]]; then
+    printf '['
+    local first=1 id status found version
+    for id in $(adapter_ids); do
+      load_adapter "$id"
+      IFS=$'\t' read -r _ status found version < <(detect_adapter "$id")
+      [[ $first == 0 ]] && printf ','
+      first=0
+      printf '{"id":"%s","display_name":"%s","status":"%s","path":"%s","run_cmd":"%s"}' "$id" "$ADAPTER_DISPLAY_NAME" "$status" "$found" "$ADAPTER_RUN_CMD"
+    done
+    printf ']\n'
+    return
+  fi
+  printf '%-12s %-28s %-10s %s\n' "ID" "Display name" "Status" "Run command"
+  local id status found version
+  for id in $(adapter_ids); do
+    load_adapter "$id"
+    IFS=$'\t' read -r _ status found version < <(detect_adapter "$id")
+    printf '%-12s %-28s %-10s %s\n' "$id" "$ADAPTER_DISPLAY_NAME" "$status" "$ADAPTER_RUN_CMD"
+  done
+}
+
+cmd_cli_add() {
+  local id="" command="" install="" display=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --id) id="$(sanitize_id "${2:-}")"; shift 2 ;;
+      --command) command="${2:-}"; shift 2 ;;
+      --install) install="${2:-}"; shift 2 ;;
+      --display-name) display="${2:-}"; shift 2 ;;
+      *) [[ -z "$id" ]] && id="$(sanitize_id "$1")"; shift ;;
+    esac
+  done
+  [[ -n "$id" ]] || die "cli add requires --id"
+  [[ -n "$command" ]] || command="$id"
+  [[ -n "$display" ]] || display="$id"
+  mkdir -p "$USER_ADAPTER_DIR"
+  local file="$USER_ADAPTER_DIR/$id.conf"
+  {
+    printf 'ADAPTER_ID=%q\n' "$id"
+    printf 'ADAPTER_DISPLAY_NAME=%q\n' "$display"
+    printf 'ADAPTER_BINARIES=%q\n' "$command"
+    printf 'ADAPTER_VERSION_CMD=%q\n' "$command --version"
+    printf 'ADAPTER_INSTALL_METHODS=%q\n' "custom"
+    printf 'ADAPTER_INSTALL_CUSTOM=%q\n' "${install:-echo 'No install command configured'}"
+    printf 'ADAPTER_RUN_CMD=%q\n' "$command"
+    printf 'ADAPTER_NOTES=%q\n' "Custom adapter"
+  } > "$file"
+  say "Added custom adapter: $file"
+}
+
+require_project() {
+  local root
+  root="$(project_root_arg "$@")"
+  [[ -f "$root/.agentdock/config.runtime" ]] || die "project not initialized: $root"
+  printf '%s' "$root"
+}
+
+workspace_dirs() {
+  local root="$1" role="${2:-}"
+  mkdir -p "$root/.agentdock/prompts" "$root/.agentdock/generated" "$root/.agentdock/state"
+  mkdir -p "$root/.agent-work/07_JOBS" "$root/.agent-work/08_DECISIONS" "$root/.agent-work/09_HANDOFFS"
+  mkdir -p "$root/.agent-work/10_REPORTS" "$root/.agent-work/11_ARCHIVE" "$root/.agent-work/12_INBOX" "$root/.agent-work/13_OUTBOX" "$root/.agent-work/14_SHARED_CONTEXT"
+  [[ -n "$role" ]] && mkdir -p "$root/.agent-work/12_INBOX/$role" "$root/.agent-work/13_OUTBOX/$role" "$root/.agent-work/10_REPORTS/$role"
+  [[ -f "$root/.agent-work/LOCKS.md" ]] || printf '# AgentDock Locks\n\n## Active locks\n\n| Role | Files | Reason | Since |\n|---|---|---|---|\n' > "$root/.agent-work/LOCKS.md"
+  [[ -f "$root/.agent-work/14_SHARED_CONTEXT/PROJECT_CONTEXT.md" ]] || printf '# Project Context\n\nFill in stack, commands, risks, and deployment notes.\n' > "$root/.agent-work/14_SHARED_CONTEXT/PROJECT_CONTEXT.md"
+}
+
+source_runtime() {
+  local root="$1"
+  # shellcheck source=/dev/null
+  source "$root/.agentdock/config.runtime"
+}
+
+write_runtime() {
+  local root="$1" project_name="$2" session="$3" layout="$4" agent_ids="$5"
+  local file="$root/.agentdock/config.runtime"
+  agent_ids="$(normalize_agent_ids "$agent_ids")"
+  local id var
+  {
+    printf 'PROJECT_NAME=%q\n' "$project_name"
+    printf 'PROJECT_ROOT=%q\n' "$root"
+    printf 'SESSION_NAME=%q\n' "$session"
+    printf 'LAYOUT=%q\n' "$layout"
+    printf 'ATTACH_ON_START=%q\n' "1"
+    printf 'USE_WORKTREES=%q\n' "0"
+    printf 'WORK_DIR=%q\n' ".agent-work"
+    printf 'AGENT_IDS=%q\n' "$agent_ids"
+    for id in $agent_ids; do
+      var="AGENT_${id//-/_}"
+      eval "local display=\"\${${var}_DISPLAY_NAME:-$id}\" cli=\"\${${var}_CLI:-}\" window=\"\${${var}_WINDOW:-agents}\""
+      [[ -n "$cli" && "$cli" != "$DEFAULT_AGENT_CLI" ]] && cli="$DEFAULT_AGENT_CLI"
+      cli="$(resolved_cli "$cli")"
+      local cmd
+      cmd="$(resolved_cli_cmd "$cli")"
+      printf '%s_DISPLAY_NAME=%q\n' "$var" "$display"
+      printf '%s_CLI=%q\n' "$var" "$cli"
+      printf '%s_CMD=%q\n' "$var" "$cmd"
+      printf '%s_PROMPT=%q\n' "$var" ".agentdock/prompts/$id.md"
+      printf '%s_BOOT=%q\n' "$var" ".agentdock/generated/boot-$id.md"
+      printf '%s_WINDOW=%q\n' "$var" "$window"
+      printf '%s_CWD_MODE=%q\n' "$var" "project_root"
+    done
+  } > "$file"
+}
+
+write_yaml() {
+  local root="$1"
+  source_runtime "$root"
+  {
+    say "version: 1"
+    say "project:"
+    say "  name: $PROJECT_NAME"
+    say "  root: $PROJECT_ROOT"
+    say "session:"
+    say "  name: $SESSION_NAME"
+    say "  layout: $LAYOUT"
+    say "workspace:"
+    say "  work_dir: .agent-work"
+    say "  use_worktrees: false"
+    say "agents:"
+    local id var
+    for id in $AGENT_IDS; do
+      var="AGENT_${id//-/_}"
+      eval "local display=\"\${${var}_DISPLAY_NAME}\" cli=\"\${${var}_CLI}\" prompt=\"\${${var}_PROMPT}\" boot=\"\${${var}_BOOT}\" window=\"\${${var}_WINDOW}\""
+      say "  - id: $id"
+      say "    display_name: $display"
+      say "    cli: $cli"
+      say "    prompt_file: $prompt"
+      say "    boot_file: $boot"
+      say "    window: $window"
+      say "    cwd_mode: project_root"
+    done
+  } > "$root/.agentdock/config.yml"
+}
+
+generate_role_prompt() {
+  local root="$1" id="$2" display="$3" file="$root/.agentdock/prompts/$id.md"
+  [[ -f "$file" ]] && return
+  local template_file
+  template_file="$(role_template_file "$id" || true)"
+  if [[ -n "$template_file" ]]; then
+    cp "$template_file" "$file"
+    return
+  elif role_template_body "$id" > "$file"; then
+    return
+  fi
+  local orchestration=""
+  if [[ "$id" == "ceo-orchestrator" || "$id" == "ceo" || "$id" == "orchestrator" ]]; then
+    orchestration="
+## Orchestration authority
+- You are the only role that starts by default. Do not expect a pre-running team.
+- Analyze each job, choose the smallest useful team, name the roles yourself, then recruit them.
+- In AgentDock, team means tmux-backed roles started with agentdock recruit. Do not satisfy team-formation requests by using Codex native subagents or an internal team mode.
+- If a user asks to build, compose, or configure a team, create/update TEAM.md and run agentdock recruit for each needed role.
+- Inspect bundled BMAD role templates with:
+  agentdock roles list
+- Recruit named specialists with a BMAD or AgentDock template when it fits:
+  agentdock recruit <your-role-name> --template <template-id> --mission \"...\" --instructions \"...\"
+- When the user gives you a real work request directly in this Hermes pane, immediately run:
+  adock-delegate --from $id --request \"<verbatim user request>\"
+- Do not ask the user to run adock task from another terminal for normal delegation.
+- For every job, write/update the selected team in the job TEAM.md file.
+- Dispatch work by writing one task card per role under the job TASKS directory and sending each role an inbox message with its task-card path.
+- Update the job LIFECYCLE.md as work moves through planned, recruited, executing, verifying, and complete.
+- Check available adapters with: agentdock cli list
+- Delegate through task cards, inbox messages, reports, and handoffs under .agent-work.
+- Keep the team small enough to coordinate, but add roles when parallel execution or specialist review is needed.
+"
+  fi
+  cat > "$file" <<EOF
+# $display
+
+## Mission
+Execute the responsibilities assigned to the $display role for this project.
+$orchestration
+
+## Boundaries
+- Coordinate through .agent-work files.
+- Inspect git status before editing.
+- Do not change unrelated files.
+
+## Required output
+- Summary
+- Files changed
+- Tests run
+- Risks
+- Handoff notes
+EOF
+}
+
+write_custom_role_prompt() {
+  local root="$1" id="$2" display="$3" mission="$4" instructions="$5"
+  local file="$root/.agentdock/prompts/$id.md"
+  cat > "$file" <<EOF
+# $display
+
+## Mission
+$mission
+
+## Role-specific instructions
+${instructions:-Use judgment appropriate to this role. Coordinate with the orchestrator before expanding scope.}
+
+## Boundaries
+- Coordinate through .agent-work files.
+- Inspect git status before editing.
+- Do not change unrelated files.
+- Check .agent-work/LOCKS.md before editing files.
+- Report blockers and handoffs instead of silently changing scope.
+
+## Required output
+- Summary
+- Files changed
+- Tests run
+- Risks
+- Handoff notes
+EOF
+}
+
+write_template_role_prompt() {
+  local root="$1" id="$2" display="$3" template="$4" mission="$5" instructions="$6"
+  local file="$root/.agentdock/prompts/$id.md" template_file
+  template_file="$(role_template_file "$template" || true)"
+  [[ -n "$template_file" ]] || role_template_body "$template" >/dev/null || die "unknown role template: $template. Run: agentdock roles list"
+  {
+    printf '# %s\n\n' "$display"
+    printf 'Based on role template: `%s`.\n\n' "$template"
+    if [[ -n "$template_file" ]]; then
+      cat "$template_file"
+    else
+      role_template_body "$template"
+    fi
+    if [[ -n "$mission" || -n "$instructions" ]]; then
+      printf '\n## Assignment Override\n'
+      [[ -n "$mission" ]] && printf '\nMission: %s\n' "$mission"
+      [[ -n "$instructions" ]] && printf '\nInstructions: %s\n' "$instructions"
+    fi
+  } > "$file"
+}
+
+generate_boot_prompt() {
+  local root="$1" id="$2"
+  source_runtime "$root"
+  local var="AGENT_${id//-/_}"
+  eval "local display=\"\${${var}_DISPLAY_NAME}\" cli=\"\${${var}_CLI}\" prompt=\"\${${var}_PROMPT}\" boot=\"\${${var}_BOOT}\""
+  local orchestrator_rules=""
+  if [[ "$id" == "ceo-orchestrator" || "$id" == "ceo" || "$id" == "orchestrator" ]]; then
+    orchestrator_rules="$(cat <<'EOF'
+## AgentDock team formation rules
+- AgentDock team members are real tmux panes/windows started by `agentdock recruit`.
+- Do not use Codex native subagents, OMX team mode, or any internal CLI team feature to satisfy AgentDock team formation.
+- When the user asks you to compose or configure a team, first write the plan to the current job `TEAM.md`, then recruit each needed role with `agentdock recruit`.
+- Use `agentdock roles list` to choose templates. BMAD templates are preferred when they fit; AgentDock supplemental templates cover CEO, CTO, marketing, planning, and QA.
+- After recruiting or when roles are already running, create/update task cards under the current job `TASKS/` directory and send each role an inbox message with its task-card path.
+- If the user gives you work directly in this tmux pane, do not just discuss the work and do not ask the user to open another terminal. Immediately call the AgentDock delegate command with the user request:
+  `adock-delegate --from __ROLE_ID__ --request "<verbatim user request>"`
+- The delegate command creates the job files under `.agent-work/07_JOBS` and sends role-specific task-card messages to the running tmux panes.
+EOF
+)"
+    orchestrator_rules="${orchestrator_rules//__ROLE_ID__/$id}"
+  fi
+  cat > "$root/$boot" <<EOF
+# Boot Prompt: $display
+
+## Runtime identity
+- Role id: $id
+- Display name: $display
+- Assigned CLI: $cli
+- Project root: $root
+- Current working directory: $root
+- AgentDock project config: .agentdock/config.yml
+
+## Required reading
+- $prompt
+- .agent-work/LOCKS.md
+- .agent-work/14_SHARED_CONTEXT/PROJECT_CONTEXT.md
+- .agent-work/07_JOBS/CURRENT.md if present
+
+## Operating rules
+- The shared source of truth is .agent-work, not tmux chat.
+- Use inbox/outbox for cross-agent communication.
+- Use reports for status and completion summaries.
+- Use handoffs when another role should continue work.
+- Check locks before editing files.
+- Do not modify files outside project root unless explicitly assigned.
+- Do not install dependencies or run destructive commands without asking the user or orchestrator.
+- CEO/orchestrator roles may recruit additional local roles with: agentdock recruit <role-name> --template <template-id> --cli <adapter> --mission "..." --instructions "..."
+$orchestrator_rules
+
+## Output locations
+- Inbox: .agent-work/12_INBOX/$id
+- Outbox: .agent-work/13_OUTBOX/$id
+- Reports: .agent-work/10_REPORTS/$id
+- Handoffs: .agent-work/09_HANDOFFS
+- Shared context: .agent-work/14_SHARED_CONTEXT
+- Current job lifecycle: .agent-work/07_JOBS/CURRENT.md points to the active job. CEO/orchestrator roles must maintain that job's TEAM.md, LIFECYCLE.md, and TASKS directory.
+
+## First action
+Read the required files, then reply with: READY - $display.
+EOF
+}
+
+regenerate_all() {
+  local root="$1" id
+  source_runtime "$root"
+  for id in $AGENT_IDS; do
+    local var="AGENT_${id//-/_}"
+    eval "local display=\"\${${var}_DISPLAY_NAME}\""
+    workspace_dirs "$root" "$id"
+    generate_role_prompt "$root" "$id" "$display"
+    generate_boot_prompt "$root" "$id"
+  done
+  write_yaml "$root"
+}
+
+cmd_init() {
+  local root force=0 preset="ceo" layout="windows" roles=""
+  root="$(project_root_arg "$@")"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --force) force=1; shift ;;
+      --preset) preset="${2:-ceo}"; shift 2 ;;
+      --roles) roles="${2:-}"; shift 2 ;;
+      --layout) layout="${2:-hybrid}"; shift 2 ;;
+      --project) shift 2 ;;
+      --project=*) shift ;;
+      *) shift ;;
+    esac
+  done
+  [[ ! -f "$root/.agentdock/config.runtime" || "$force" == 1 ]] || die "project already initialized; use --force"
+  workspace_dirs "$root"
+  local project_name session agent_ids
+  project_name="$(basename "$root")"
+  session="$(sanitize_session "$project_name")"
+  if [[ -n "$roles" ]]; then
+    agent_ids=""
+    local raw id
+    IFS=',' read -ra raw_roles <<< "$roles"
+    for raw in "${raw_roles[@]}"; do id="$(sanitize_id "$raw")"; agent_ids+=" $id"; done
+    agent_ids="${agent_ids# }"
+  elif [[ "$preset" == "core-4" ]]; then
+    agent_ids="orchestrator developer qa reviewer"
+  elif [[ "$preset" == "ceo" || "$preset" == "default" ]]; then
+    agent_ids="ceo-orchestrator"
+  else
+    agent_ids="ceo-orchestrator"
+  fi
+  write_runtime "$root" "$project_name" "$session" "$layout" "$agent_ids"
+  regenerate_all "$root"
+  say "Initialized AgentDock project at $root"
+}
+
+role_exists() {
+  local root="$1" role="$2" id
+  source_runtime "$root"
+  for id in $AGENT_IDS; do [[ "$id" == "$role" ]] && return 0; done
+  return 1
+}
+
+cmd_role_add() {
+  [[ "${1:-}" == "add" ]] || die "usage: agentdock role add <id> [--cli <adapter>]"
+  shift
+  local root role cli="" display=""
+  root="$(require_project "$@")"
+  role="$(sanitize_id "${1:-}")"
+  [[ -n "$role" ]] || die "role id required"
+  shift || true
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --cli) cli="${2:-}"; shift 2 ;;
+      --display-name) display="${2:-}"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  cli="$(resolved_cli "$cli")"
+  role_exists "$root" "$role" && die "role already exists: $role"
+  source_runtime "$root"
+  local var="AGENT_${role//-/_}" cmd="$(resolved_cli_cmd "$cli")"
+  eval "${var}_DISPLAY_NAME=\"${display:-$role}\""
+  eval "${var}_CLI=\"$cli\""
+  eval "${var}_CMD=\"$cmd\""
+  eval "${var}_WINDOW=\"agents\""
+  write_runtime "$root" "$PROJECT_NAME" "$SESSION_NAME" "$LAYOUT" "$AGENT_IDS $role"
+  regenerate_all "$root"
+  say "Added role: $role"
+}
+
+cmd_assign() {
+  local root role="" cli=""
+  root="$(require_project "$@")"
+  if [[ -n "${1:-}" ]]; then
+    role="$(sanitize_id "$1")"
+  fi
+  cli="${2:-}"
+  if [[ "$cli" == "--cli" ]]; then
+    cli="${3:-}"
+  fi
+  [[ -n "$role" ]] || die "usage: agentdock assign <role> [--cli <adapter>]"
+  [[ "$1" != "--cli" ]] || die "usage: agentdock assign <role> [--cli <adapter>]"
+  role_exists "$root" "$role" || die "unknown role: $role. Create it first with: agentdock recruit $role --cli <adapter>"
+  cli="$(resolved_cli "$cli")"
+  source_runtime "$root"
+  set_role_runtime "$root" "$role" "$cli"
+  regenerate_all "$root"
+  say "Assigned $role -> $cli"
+}
+
+recruit_role() {
+  local root="$1" role="$2" cli="$3" display="$4" mission="$5" instructions="$6" skip_missing="$7" template="${8:-}"
+  cli="$(resolved_cli "$cli")"
+  local run_cmd="$(resolved_cli_cmd "$cli")"
+  if ! role_exists "$root" "$role"; then
+    source_runtime "$root"
+    local var="AGENT_${role//-/_}"
+    eval "${var}_DISPLAY_NAME=\"${display:-$role}\""
+    eval "${var}_CLI=\"$cli\""
+    eval "${var}_CMD=\"$run_cmd\""
+    eval "${var}_WINDOW=\"agents\""
+    write_runtime "$root" "$PROJECT_NAME" "$SESSION_NAME" "$LAYOUT" "$AGENT_IDS $role"
+    regenerate_all "$root"
+    if [[ -n "$template" ]]; then
+      write_template_role_prompt "$root" "$role" "${display:-$role}" "$template" "$mission" "$instructions"
+      generate_boot_prompt "$root" "$role"
+    elif [[ -n "$mission" || -n "$instructions" ]]; then
+      write_custom_role_prompt "$root" "$role" "${display:-$role}" "${mission:-Execute the responsibilities assigned to this role by the orchestrator.}" "$instructions"
+      generate_boot_prompt "$root" "$role"
+    fi
+    say "Recruited role: $role -> $cli"
+  elif [[ -n "$template" ]]; then
+    write_template_role_prompt "$root" "$role" "${display:-$role}" "$template" "$mission" "$instructions"
+    generate_boot_prompt "$root" "$role"
+    say "Updated role prompt: $role"
+  elif [[ -n "$mission" || -n "$instructions" ]]; then
+    source_runtime "$root"
+    local current_var="AGENT_${role//-/_}"
+    eval "local current_display=\"\${${current_var}_DISPLAY_NAME}\""
+    write_custom_role_prompt "$root" "$role" "${display:-$current_display}" "${mission:-Execute the responsibilities assigned to this role by the orchestrator.}" "$instructions"
+    generate_boot_prompt "$root" "$role"
+    say "Updated role prompt: $role"
+  fi
+
+  source_runtime "$root"
+  have tmux || die "tmux is required to start recruited roles"
+  if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+    say "Session not running; role is configured and will start with: agentdock start"
+    return
+  fi
+
+  local status found version existing pane target var cmd
+  var="AGENT_${role//-/_}"
+  eval "cli=\"\${${var}_CLI}\" cmd=\"\${${var}_CMD}\""
+  IFS=$'\t' read -r _ status found version < <(detect_adapter "$cli" || printf '%s\tmissing\t\t\n' "$cli")
+  if [[ "$status" != installed && "$skip_missing" != 1 ]]; then
+    [[ "$cli" == "$DEFAULT_AGENT_CLI" ]] && hermes_install_guidance >&2
+    die "assigned CLI missing for $role: $cli"
+  fi
+
+  existing="$(tmux_target_for_role "$role" || true)"
+  if [[ -n "$existing" ]] && tmux list-panes -a -F '#{pane_id}' | grep -Fxq "$existing"; then
+    say "Role already running: $role ($existing)"
+    return
+  fi
+
+  if [[ "$LAYOUT" == "windows" ]]; then
+    tmux new-window -d -t "$SESSION_NAME" -n "$role" -c "$root"
+    pane="$(tmux display-message -p -t "$SESSION_NAME:$role.0" '#{pane_id}')"
+  else
+    pane="$(tmux split-window -d -P -F '#{pane_id}' -t "$SESSION_NAME:0" -c "$root")"
+    tmux select-layout -t "$SESSION_NAME:0" tiled >/dev/null
+  fi
+  tmux select-pane -t "$pane" -T "$role"
+  target="$pane"
+  tmux send-keys -t "$target" "cd $(quote "$root")" C-m
+  tmux send-keys -t "$target" "$cmd" C-m
+  wait_for_agent_input "$target" "$cli"
+  tmux send-keys -t "$target" "Read .agentdock/generated/boot-$role.md and follow it. AgentDock team members are tmux roles, not Codex native subagents. Say READY - $role when ready." C-m
+  sed -i "/^PANE_${role//-/_}=/d" "$root/.agentdock/state/panes.env" 2>/dev/null || true
+  printf 'PANE_%s=%q\n' "${role//-/_}" "$pane" >> "$root/.agentdock/state/panes.env"
+  say "Started recruited role: $role ($pane)"
+}
+
+cmd_recruit() {
+  local root cli="" display="" mission="" instructions="" template="" skip_missing=0
+  root="$(require_project "$@")"
+  local -a roles=() unique_roles=()
+  local -A seen
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --cli) cli="${2:-}"; shift 2 ;;
+      --display-name) display="${2:-}"; shift 2 ;;
+      --template) template="$(sanitize_id "${2:-}")"; shift 2 ;;
+      --mission) mission="${2:-}"; shift 2 ;;
+      --instructions) instructions="${2:-}"; shift 2 ;;
+      --skip-missing) skip_missing=1; shift ;;
+      --project) shift 2 ;;
+      --project=*) shift ;;
+      --*) shift ;;
+      *) roles+=("$1"); shift ;;
+    esac
+  done
+  [[ ${#roles[@]} -gt 0 ]] || die "usage: agentdock recruit <role> [role...] [--template <template-id>] [--cli <adapter>] [--display-name name] [--mission text] [--instructions text]"
+
+  local role token
+  for role in "${roles[@]}"; do
+    IFS=',' read -ra tokens <<< "$role"
+    for token in "${tokens[@]}"; do
+      token="$(sanitize_id "$token")"
+      [[ -n "$token" ]] || continue
+      [[ -n "${seen[$token]:-}" ]] && continue
+      seen["$token"]=1
+      unique_roles+=("$token")
+    done
+  done
+
+  for token in "${unique_roles[@]}"; do
+    recruit_role "$root" "$token" "$cli" "$display" "$mission" "$instructions" "$skip_missing" "$template"
+  done
+}
+
+cmd_team() {
+  local root id var status found version
+  root="$(require_project "$@")"
+  source_runtime "$root"
+  say "AgentDock Team: $PROJECT_NAME"
+  say ""
+  printf '%-22s %-12s %-10s\n' "Role" "CLI" "Status"
+  for id in $AGENT_IDS; do
+    var="AGENT_${id//-/_}"
+    eval "local cli=\"\${${var}_CLI}\""
+    IFS=$'\t' read -r _ status found version < <(detect_adapter "$cli" || printf '%s\tmissing\t\t\n' "$cli")
+    printf '%-22s %-12s %-10s\n' "$id" "$cli" "$status"
+  done
+}
+
+tmux_target_for_role() {
+  local role="$1"
+  local key="PANE_${role//-/_}"
+  local pane
+  pane="$(grep "^$key=" ".agentdock/state/panes.env" 2>/dev/null | sed 's/^[^=]*=//; s/"//g' | tail -1)"
+  [[ -n "$pane" ]] || return 0
+  tmux list-panes -a -F '#{pane_id}' 2>/dev/null | grep -Fxq "$pane" || return 0
+  printf '%s\n' "$pane"
+}
+
+wait_for_agent_input() {
+  local pane="$1" cli="${2:-$DEFAULT_AGENT_CLI}" timeout="${AGENTDOCK_BOOT_WAIT_SECONDS:-20}"
+  local waited=0 output
+  while (( waited < timeout * 4 )); do
+    output="$(tmux capture-pane -p -t "$pane" -S -80 2>/dev/null || true)"
+    case "$cli" in
+      hermes)
+        if printf '%s\n' "$output" | grep -Eq 'Welcome to Hermes Agent|Type your message|hermes ready|❯'; then
+          return 0
+        fi
+        ;;
+      *)
+        [[ -n "$output" ]] && return 0
+        ;;
+    esac
+    sleep 0.25
+    waited=$((waited + 1))
+  done
+  return 0
+}
+
+cmd_start() {
+  local root fresh=0 attach=1 layout="" yes=0 skip_missing=0 launch_all=1
+  root="$(require_project "$@")"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --fresh) fresh=1; shift ;;
+      --no-attach) attach=0; shift ;;
+      --layout) layout="${2:-}"; shift 2 ;;
+      --all) launch_all=1; shift ;;
+      --bootstrap-only) launch_all=0; shift ;;
+      --yes) yes=1; shift ;;
+      --skip-missing) skip_missing=1; shift ;;
+      *) shift ;;
+    esac
+  done
+  have tmux || die "tmux is required. Run: agentdock install tmux --yes"
+  source_runtime "$root"
+  [[ -n "$layout" ]] && LAYOUT="$layout"
+  regenerate_all "$root"
+  local id var cli cmd status found version launch_ids orchestrator should_launch
+  orchestrator="$(orchestrator_role "$root")"
+  launch_ids="$orchestrator"
+  [[ "$launch_all" == 1 ]] && launch_ids="$AGENT_IDS"
+  for id in $AGENT_IDS; do
+    should_launch=0
+    [[ "$launch_all" == 1 || "$id" == "$orchestrator" ]] && should_launch=1
+    var="AGENT_${id//-/_}"
+    eval "cli=\"\${${var}_CLI}\" cmd=\"\${${var}_CMD}\""
+    if [[ "$cli" != "$DEFAULT_AGENT_CLI" ]]; then
+      say "Migrated $id CLI: $cli -> $DEFAULT_AGENT_CLI (Hermes-only runtime)"
+      set_role_runtime "$root" "$id" "$DEFAULT_AGENT_CLI"
+      cli="$DEFAULT_AGENT_CLI"
+      cmd="$(resolved_cli_cmd "$cli")"
+    fi
+    [[ "$should_launch" == 1 ]] || continue
+    IFS=$'\t' read -r _ status found version < <(detect_adapter "$cli" || printf '%s\tmissing\t\t\n' "$cli")
+    if [[ "$status" != installed ]]; then
+      local replacement
+      replacement="$(pick_installed_cli || true)"
+      if [[ -n "$replacement" ]]; then
+        set_role_runtime "$root" "$id" "$replacement"
+        cli="$replacement"
+        cmd="$(resolved_cli_cmd "$replacement")"
+        status="installed"
+        say "Auto-assigned $id -> $replacement (installed CLI auto-detected)"
+      fi
+    fi
+    if [[ "$status" != installed && "$skip_missing" != 1 ]]; then
+      [[ "$cli" == "$DEFAULT_AGENT_CLI" ]] && hermes_install_guidance >&2
+      die "assigned CLI missing for $id: $cli"
+    fi
+  done
+  source_runtime "$root"
+  if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+    if [[ "$fresh" == 1 ]]; then
+      [[ "$yes" == 1 ]] || die "session exists; rerun with --fresh --yes to kill it"
+      tmux kill-session -t "$SESSION_NAME"
+    else
+      [[ "$attach" == 1 ]] && exec tmux attach -t "$SESSION_NAME"
+      say "Session already running: $SESSION_NAME"
+      return
+    fi
+  fi
+  local first=1 pane target window
+  : > "$root/.agentdock/state/panes.env"
+  for id in $launch_ids; do
+    var="AGENT_${id//-/_}"
+    eval "cmd=\"\${${var}_CMD}\" window=\"\${${var}_WINDOW}\""
+    if [[ "$first" == 1 ]]; then
+      tmux new-session -d -s "$SESSION_NAME" -n "${LAYOUT:-agents}" -c "$root"
+      pane="$(tmux display-message -p -t "$SESSION_NAME:0.0" '#{pane_id}')"
+      first=0
+    elif [[ "$LAYOUT" == "windows" ]]; then
+      tmux new-window -d -t "$SESSION_NAME" -n "$id" -c "$root"
+      pane="$(tmux display-message -p -t "$SESSION_NAME:$id.0" '#{pane_id}')"
+    else
+      pane="$(tmux split-window -d -P -F '#{pane_id}' -t "$SESSION_NAME:0" -c "$root")"
+      tmux select-layout -t "$SESSION_NAME:0" tiled >/dev/null
+    fi
+    tmux select-pane -t "$pane" -T "$id"
+    target="$pane"
+    tmux send-keys -t "$target" "cd $(quote "$root")" C-m
+    tmux send-keys -t "$target" "$cmd" C-m
+    wait_for_agent_input "$target" "$DEFAULT_AGENT_CLI"
+    tmux send-keys -t "$target" "Read .agentdock/generated/boot-$id.md and follow it. AgentDock team members are tmux roles, not Codex native subagents. Say READY - $id when ready." C-m
+    printf 'PANE_%s=%q\n' "${id//-/_}" "$pane" >> "$root/.agentdock/state/panes.env"
+  done
+  tmux set-option -t "$SESSION_NAME" pane-border-status top >/dev/null
+  tmux set-option -t "$SESSION_NAME" pane-border-format ' #P #{pane_title} ' >/dev/null
+  tmux set-option -t "$SESSION_NAME" status-left "[$SESSION_NAME:$LAYOUT] " >/dev/null
+  say "Started AgentDock session: $SESSION_NAME"
+  [[ "$attach" == 1 ]] && exec tmux attach -t "$SESSION_NAME"
+  return 0
+}
+
+cmd_stop() {
+  local root yes=0
+  root="$(require_project "$@")"
+  [[ "${1:-}" == "--yes" ]] && yes=1
+  source_runtime "$root"
+  tmux has-session -t "$SESSION_NAME" 2>/dev/null || { say "Session not running: $SESSION_NAME"; return; }
+  [[ "$yes" == 1 ]] || die "rerun with --yes to stop $SESSION_NAME"
+  tmux kill-session -t "$SESSION_NAME"
+  say "Stopped AgentDock session: $SESSION_NAME"
+}
+
+timestamp() {
+  local base ns
+  base="$(date +%y%m%d%H%M%S)"
+  ns="$(date +%N 2>/dev/null || true)"
+  if [[ "$ns" =~ ^[0-9]+$ ]]; then
+    printf '%s%s' "$base" "${ns:0:6}"
+  else
+    printf '%s%s' "$base" "$$"
+  fi
+}
+
+orchestrator_role() {
+  source_runtime "$1"
+  local id
+  for id in $AGENT_IDS; do [[ "$id" == "ceo-orchestrator" || "$id" == "orchestrator" || "$id" == "ceo" ]] && { printf '%s' "$id"; return; }; done
+  printf '%s' "${AGENT_IDS%% *}"
+}
+
+role_task_mission() {
+  local role="$1"
+  case "$role" in
+    *orchestrator*|ceo)
+      printf '%s\n' "Coordinate the job, maintain TEAM.md/LIFECYCLE.md, resolve blockers, and assemble the final report."
+      ;;
+    *dev*|*engineer*|*implement*)
+      printf '%s\n' "Implement the required code changes for the job and report files changed, tests run, and risks."
+      ;;
+    *qa*|*test*)
+      printf '%s\n' "Define and run verification for the job, capture failures, and report release readiness."
+      ;;
+    *review*)
+      printf '%s\n' "Review the planned and completed work for defects, regressions, missing tests, and handoff risks."
+      ;;
+    *design*|*ui*|*ux*)
+      printf '%s\n' "Handle UX/UI implications, interaction states, and design-quality review for the job."
+      ;;
+    *architect*|*architecture*|*achitecture*|*cto*)
+      printf '%s\n' "Review architecture, boundaries, technical risks, and implementation sequencing for the job."
+      ;;
+    *pm*|*plan*|*product*)
+      printf '%s\n' "Clarify scope, acceptance criteria, milestones, and task sequencing for the job."
+      ;;
+    *market*|*growth*)
+      printf '%s\n' "Handle positioning, launch, audience, and messaging implications for the job."
+      ;;
+    *)
+      printf '%s\n' "Contribute according to this role's prompt, coordinate through .agent-work, and report status and blockers."
+      ;;
+  esac
+}
+
+cmd_task() {
+  local root to="" text="" file="" broadcast=0 from="user"
+  root="$(require_project "$@")"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --to) to="$(sanitize_id "${2:-}")"; shift 2 ;;
+      --from) from="$(sanitize_id "${2:-user}")"; shift 2 ;;
+      --file) file="${2:-}"; shift 2 ;;
+      --broadcast) broadcast=1; shift ;;
+      --project) shift 2 ;;
+      *) text="${text:+$text }$1"; shift ;;
+    esac
+  done
+  [[ -n "$file" ]] && text="$(cat "$file")"
+  [[ -n "$text" ]] || die "task text required"
+  local ts job role msg id var display mission task_file
+  ts="$(timestamp)"
+  job="$root/.agent-work/07_JOBS/JOB-$ts"
+  mkdir -p "$job/TASKS" "$job/LOGS" "$job/REPORTS" "$job/HANDOFFS" "$job/OUTPUTS"
+  role="${to:-$(orchestrator_role "$root")}"
+  source_runtime "$root"
+  cat > "$job/README.md" <<EOF
+# JOB-$ts
+
+## User request
+$text
+
+## Created
+$ts
+
+## Created by
+$from
+
+## Status
+new
+
+## Assigned orchestrator
+$role
+
+## Required CEO flow
+1. Read the request and inspect available templates with \`agentdock roles list\`.
+2. Choose the smallest useful team, name each role, and record it in \`TEAM.md\`.
+3. Prefer BMAD templates when they fit; use AgentDock supplemental templates for CEO, CTO, marketing, planning, or QA lanes.
+4. Team formation means tmux roles created by \`agentdock recruit\`; do not use Codex native subagents or internal team mode for AgentDock jobs.
+5. Use the pre-created role task cards under \`TASKS/\` as the initial distribution plan.
+6. Refine task cards as needed and recruit missing specialists with \`agentdock recruit <role-name> --template <template-id> --mission "..." --instructions "..."\`.
+7. Move \`LIFECYCLE.md\` through planned, recruited, executing, verifying, and complete.
+8. Collect worker reports and write the final summary under \`REPORTS/\`.
+EOF
+  cat > "$job/TEAM.md" <<EOF
+# Team Plan
+
+## Selected roles
+
+| Role name | Template | Mission | Status |
+|---|---|---|---|
+EOF
+  for id in $AGENT_IDS; do
+    var="AGENT_${id//-/_}"
+    eval "display=\"\${${var}_DISPLAY_NAME:-$id}\""
+    mission="$(role_task_mission "$id")"
+    if [[ "$id" == "$role" ]]; then
+      printf '| %s | configured role | %s | coordinating |\n' "$id" "$mission" >> "$job/TEAM.md"
+    else
+      printf '| %s | configured role | %s | assigned |\n' "$id" "$mission" >> "$job/TEAM.md"
+    fi
+  done
+  cat >> "$job/TEAM.md" <<EOF
+
+## CEO instructions
+- Update rows when roles are added, removed, blocked, or completed.
+- Keep role names specific to the job.
+- Prefer BMAD templates from \`agentdock roles list\`; use AgentDock supplemental templates when BMAD has no matching specialist.
+EOF
+  cat > "$job/LIFECYCLE.md" <<EOF
+# Lifecycle
+
+Status: executing
+
+## States
+- new: job created and assigned to CEO/orchestrator
+- planned: CEO has selected team and task breakdown
+- recruited: required specialists have been started or intentionally skipped
+- executing: task cards are being worked
+- verifying: outputs are under QA/review
+- complete: final report is written
+
+## Log
+- $ts new: job created by $from for $role
+- $ts executing: initial task cards dispatched to configured roles
+EOF
+  cat > "$job/TASKS/README.md" <<EOF
+# Task Cards
+
+AgentDock created one initial task card per configured role. CEO/orchestrator may refine, split, reassign, or close cards.
+
+Required fields:
+- Owner
+- Mission
+- Inputs
+- Files or areas
+- Acceptance criteria
+- Status
+EOF
+  for id in $AGENT_IDS; do
+    mission="$(role_task_mission "$id")"
+    task_file="$job/TASKS/$id.md"
+    cat > "$task_file" <<EOF
+# Task: $id
+
+Owner: $id
+Status: assigned
+
+## Job
+$job/README.md
+
+## User request
+$text
+
+## Mission
+$mission
+
+## Inputs
+- Job README: $job/README.md
+- Team plan: $job/TEAM.md
+- Lifecycle: $job/LIFECYCLE.md
+- Shared context: $root/.agent-work/14_SHARED_CONTEXT/PROJECT_CONTEXT.md
+
+## Acceptance criteria
+- Report concrete status, changed files, tests/verification, blockers, and handoff needs.
+- Coordinate through .agent-work inbox/outbox/reports, not only tmux chat.
+- Do not edit unrelated files.
+
+## Output
+Write role report to:
+$job/REPORTS/$id.md
+EOF
+  done
+  printf 'Active job: %s\n' "$job/README.md" > "$root/.agent-work/07_JOBS/CURRENT.md"
+  if [[ -n "$to" ]]; then
+    msg="New AgentDock job created: $job/README.md. Your assigned task card is $job/TASKS/$role.md. Read it, execute your lane, and write $job/REPORTS/$role.md."
+    cmd_send "$role" "$msg" --project "$root" || true
+  else
+    for id in $AGENT_IDS; do
+      if [[ "$id" == "$role" ]]; then
+        msg="New AgentDock job created: $job/README.md. You are coordinator. Review TEAM.md and all TASKS/*.md, refine assignments, monitor role reports, and keep LIFECYCLE.md updated."
+      else
+        msg="New AgentDock job created: $job/README.md. Your assigned task card is $job/TASKS/$id.md. Read it, execute your lane, coordinate through .agent-work, and write $job/REPORTS/$id.md."
+      fi
+      cmd_send "$id" "$msg" --project "$root" || true
+    done
+  fi
+  say "Created job: $job"
+  say "Dispatched task cards to configured roles"
+}
+
+cmd_delegate() {
+  local root from="" text="" file=""
+  root="$(require_project "$@")"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --from) from="$(sanitize_id "${2:-}")"; shift 2 ;;
+      --request) text="${text:+$text }${2:-}"; shift 2 ;;
+      --file) file="${2:-}"; shift 2 ;;
+      --project) shift 2 ;;
+      --project=*) shift ;;
+      *) text="${text:+$text }$1"; shift ;;
+    esac
+  done
+  [[ -n "$file" ]] && text="$(cat "$file")"
+  [[ -n "$text" ]] || die "delegate request required"
+  [[ -n "$from" ]] || from="$(orchestrator_role "$root")"
+  role_exists "$root" "$from" || die "unknown delegating role: $from"
+  cmd_task --from "$from" "$text" --project "$root"
+}
+
+cmd_send() {
+  local role="${1:-}" message="${2:-}" root
+  shift 2 || true
+  root="$(require_project "$@")"
+  role="$(sanitize_id "$role")"
+  role_exists "$root" "$role" || die "unknown role: $role. Or run agentdock recruit \"$role\" before sending task-specific instructions."
+  local ts inbox pane
+  ts="$(timestamp)"
+  inbox="$root/.agent-work/12_INBOX/$role/MSG-$ts-from-user.md"
+  mkdir -p "$(dirname "$inbox")"
+  printf '# Message %s\n\n%s\n' "$ts" "$message" > "$inbox"
+  (cd "$root" && pane="$(tmux_target_for_role "$role" || true)"
+    if [[ -n "$pane" && "$pane" != "${TMUX_PANE:-}" ]]; then
+      tmux send-keys -t "$pane" "$message" C-m || true
+    fi)
+  say "Sent message file: $inbox"
+}
+
+cmd_report() {
+  local root json=0
+  root="$(require_project "$@")"
+  [[ "${1:-}" == "--json" ]] && json=1
+  source_runtime "$root"
+  local current current_path current_dir lifecycle session_status running_panes configured_count
+  current="$(cat "$root/.agent-work/07_JOBS/CURRENT.md" 2>/dev/null || true)"
+  current_path="$(printf '%s\n' "$current" | sed -n 's/^Active job: //p' | head -1)"
+  if [[ -n "$current_path" ]]; then
+    current_dir="$(dirname "$current_path")"
+    [[ "$current_dir" == /* ]] || current_dir="$root/${current_dir#./}"
+  else
+    current_dir=""
+  fi
+  lifecycle="$(grep '^Status:' "$current_dir/LIFECYCLE.md" 2>/dev/null | head -1 | sed 's/^Status:[[:space:]]*//' || true)"
+  tmux has-session -t "$SESSION_NAME" 2>/dev/null && session_status="running" || session_status="stopped"
+  configured_count="$(printf '%s\n' $AGENT_IDS | wc -l | tr -d ' ')"
+  running_panes="$(wc -l < "$root/.agentdock/state/panes.env" 2>/dev/null || printf '0')"
+  if [[ "$json" == 1 ]]; then
+    printf '{"project":"%s","session":"%s","session_status":"%s","configured_roles":%s,"running_panes":%s,"current_job":"%s","lifecycle":"%s"}\n' "$PROJECT_NAME" "$SESSION_NAME" "$session_status" "$configured_count" "$running_panes" "${current//$'\n'/ }" "$lifecycle"
+    return
+  fi
+  say "AgentDock Report"
+  say "Project: $PROJECT_NAME"
+  say "Session: $SESSION_NAME ($session_status)"
+  say "Roles: $configured_count configured, $running_panes running pane(s)"
+  say "Current job: ${current:-none}"
+  [[ -n "$lifecycle" ]] && say "Lifecycle: $lifecycle"
+  if [[ -n "$current_dir" && -f "$current_dir/TEAM.md" ]]; then
+    say ""
+    say "Current team plan:"
+    sed -n '1,40p' "$current_dir/TEAM.md"
+  fi
+  say "Reports:"
+  find "$root/.agent-work/10_REPORTS" -type f -name '*.md' 2>/dev/null | sort | tail -10 || true
+  if [[ -n "$current_dir" && -d "$current_dir/REPORTS" ]]; then
+    find "$current_dir/REPORTS" -type f -name '*.md' 2>/dev/null | sort | tail -10 || true
+  fi
+}
+
+cmd_install() {
+  local id="${1:-}" method="" yes=0
+  [[ -n "$id" ]] || die "usage: agentdock install <tool|cli> [--method npm] [--yes]"
+  shift || true
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --method) method="${2:-}"; shift 2 ;;
+      --yes) yes=1; shift ;;
+      *) shift ;;
+    esac
+  done
+  case "$id" in
+    tmux|git|node|nodejs|npm)
+      ensure_system_tool "$id" "$yes"
+      ;;
+    *)
+      install_adapter "$id" "$method" "$yes"
+      ;;
+  esac
+}
+
+main() {
+  local cmd="${1:-help}"
+  shift || true
+  if [[ "$CLI_NAME" == "adock-delegate" || "$CLI_NAME" == "agentdock-delegate" ]]; then
+    case "$cmd" in
+      help|--help|-h)
+        say "Usage: $CLI_NAME [--from <role>] --request \"...\" [--project <path>]"
+        say "Hermes-facing helper that creates an AgentDock job and dispatches task cards."
+        return
+        ;;
+    esac
+    cmd_delegate "$cmd" "$@"
+    return
+  fi
+  case "$cmd" in
+	    help|--help|-h) usage ;;
+	    version|--version) say "agentdock $AGENTDOCK_VERSION" ;;
+	    doctor) cmd_doctor "$@" ;;
+	    setup) cmd_setup "$@" ;;
+	    cli)
+	      case "${1:-}" in
+	        list) shift; cmd_cli_list "$@" ;;
+	        add) shift; cmd_cli_add "$@" ;;
+	        *) die "usage: agentdock cli list|add" ;;
+	      esac ;;
+	    roles) cmd_roles "$@" ;;
+	    install) cmd_install "$@" ;;
+    init) cmd_init "$@" ;;
+    role) cmd_role_add "$@" ;;
+    assign) cmd_assign "$@" ;;
+    recruit) cmd_recruit "$@" ;;
+    team) cmd_team "$@" ;;
+    start) cmd_start "$@" ;;
+    stop) cmd_stop "$@" ;;
+    task) cmd_task "$@" ;;
+    delegate) cmd_delegate "$@" ;;
+    send) cmd_send "$@" ;;
+    report) cmd_report "$@" ;;
+    update) say "Update hosting is not implemented in the MVP. Re-run install.sh from the release source." ;;
+    uninstall) say "Remove the installed agentdock executable and share directory manually. Project .agentdock and .agent-work are never deleted by this command." ;;
+    *) die "unknown command: $cmd" ;;
+  esac
+}
+
+main "$@"
