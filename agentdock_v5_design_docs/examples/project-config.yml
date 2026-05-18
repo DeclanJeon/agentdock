@@ -1,0 +1,54 @@
+version: 1
+
+project:
+  name: pons-sfu
+  root: /home/declan/Documents/Develop/Project/pons_sfu
+
+session:
+  name: pons-sfu-agents
+  layout: hybrid
+  attach_on_start: true
+  fresh_on_start: false
+
+workspace:
+  work_dir: .agent-work
+  use_worktrees: false
+  worktree_root: ../pons_sfu-agent-worktrees
+
+agents:
+  - id: orchestrator
+    display_name: Orchestrator
+    role_template: orchestrator
+    cli: gemini
+    prompt_file: .agentdock/prompts/orchestrator.md
+    boot_file: .agentdock/generated/boot-orchestrator.md
+    window: command-center
+    cwd_mode: project_root
+    orchestrator: true
+
+  - id: backend
+    display_name: Backend Engineer
+    role_template: backend
+    cli: codex
+    prompt_file: .agentdock/prompts/backend.md
+    boot_file: .agentdock/generated/boot-backend.md
+    window: implementation
+    cwd_mode: project_root
+
+  - id: frontend
+    display_name: Frontend Engineer
+    role_template: frontend
+    cli: opencode
+    prompt_file: .agentdock/prompts/frontend.md
+    boot_file: .agentdock/generated/boot-frontend.md
+    window: implementation
+    cwd_mode: project_root
+
+  - id: qa
+    display_name: QA Reviewer
+    role_template: qa
+    cli: codex
+    prompt_file: .agentdock/prompts/qa.md
+    boot_file: .agentdock/generated/boot-qa.md
+    window: quality-docs
+    cwd_mode: project_root
