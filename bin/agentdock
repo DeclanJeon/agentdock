@@ -23,6 +23,15 @@ say() { printf '%s\n' "$*"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 quote() { printf "%q" "$1"; }
 
+launch_cmd_for_detected_cli() {
+  local cli="$1" configured_cmd="$2" found="${3:-}"
+  if [[ -n "$found" && "$configured_cmd" == "$cli" ]]; then
+    quote "$found"
+    return
+  fi
+  printf '%s' "$configured_cmd"
+}
+
 usage() {
   cat <<EOF
 AgentDock - local multi-agent tmux workrooms
@@ -150,10 +159,22 @@ detect_adapter() {
   printf '%s\tmissing\t\t\n' "$id"
 }
 
+detect_adapter_cached() {
+  local id="$1" key var value
+  key="${id//[^a-zA-Z0-9_]/_}"
+  var="AGENTDOCK_DETECT_CACHE_$key"
+  value="${!var:-}"
+  if [[ -z "$value" ]]; then
+    value="$(detect_adapter "$id" || printf '%s\tmissing\t\t\n' "$id")"
+    printf -v "$var" '%s' "$value"
+  fi
+  printf '%s\n' "$value"
+}
+
 pick_installed_cli() {
   local id status found version
   for id in "$DEFAULT_AGENT_CLI"; do
-    IFS=$'\t' read -r _ status found version < <(detect_adapter "$id" || printf '%s\tmissing\t\t\n' "$id")
+    IFS=$'\t' read -r _ status found version < <(detect_adapter_cached "$id")
     [[ "$status" == installed ]] && { printf '%s\n' "$id"; return 0; }
   done
   return 1
@@ -571,7 +592,7 @@ cmd_setup() {
     fi
   fi
 
-  IFS=$'\t' read -r _ status found version < <(detect_adapter "$cli" || printf '%s\tmissing\t\t\n' "$cli")
+  IFS=$'\t' read -r _ status found version < <(detect_adapter_cached "$cli")
   if [[ "$status" == installed ]]; then
     say "OK  $cli already installed: $found"
   else
@@ -1038,11 +1059,12 @@ recruit_role() {
   local status found version existing pane target var cmd
   var="AGENT_${role//-/_}"
   eval "cli=\"\${${var}_CLI}\" cmd=\"\${${var}_CMD}\""
-  IFS=$'\t' read -r _ status found version < <(detect_adapter "$cli" || printf '%s\tmissing\t\t\n' "$cli")
+  IFS=$'\t' read -r _ status found version < <(detect_adapter_cached "$cli")
   if [[ "$status" != installed && "$skip_missing" != 1 ]]; then
     [[ "$cli" == "$DEFAULT_AGENT_CLI" ]] && hermes_install_guidance >&2
     die "assigned CLI missing for $role: $cli"
   fi
+  [[ "$status" == installed ]] && cmd="$(launch_cmd_for_detected_cli "$cli" "$cmd" "$found")"
 
   existing="$(tmux_target_for_role "$role" || true)"
   if [[ -n "$existing" ]] && tmux list-panes -a -F '#{pane_id}' | grep -Fxq "$existing"; then
@@ -1059,10 +1081,12 @@ recruit_role() {
   fi
   tmux select-pane -t "$pane" -T "$role"
   target="$pane"
-  tmux send-keys -t "$target" "cd $(quote "$root")" C-m
-  tmux send-keys -t "$target" "$cmd" C-m
-  wait_for_agent_input "$target" "$cli"
-  tmux send-keys -t "$target" "Read .agentdock/generated/boot-$role.md and follow it. AgentDock team members are tmux roles, not Codex native subagents. Say READY - $role when ready." C-m
+  tmux send-keys -t "$target" "cd $(quote "$root") && $cmd" C-m
+  if [[ "${AGENTDOCK_DEFER_BOOT:-0}" == 1 ]]; then
+    AGENTDOCK_LAUNCHED_PAIRS+=("$role:$pane")
+  else
+    boot_started_roles "$root" "$cli" "$role:$pane"
+  fi
   sed -i "/^PANE_${role//-/_}=/d" "$root/.agentdock/state/panes.env" 2>/dev/null || true
   printf 'PANE_%s=%q\n' "${role//-/_}" "$pane" >> "$root/.agentdock/state/panes.env"
   say "Started recruited role: $role ($pane)"
@@ -1101,9 +1125,14 @@ cmd_recruit() {
     done
   done
 
+  detect_adapter_cached "$DEFAULT_AGENT_CLI" >/dev/null || true
+  AGENTDOCK_LAUNCHED_PAIRS=()
+  AGENTDOCK_DEFER_BOOT=1
   for token in "${unique_roles[@]}"; do
     recruit_role "$root" "$token" "$cli" "$display" "$mission" "$instructions" "$skip_missing" "$template"
   done
+  AGENTDOCK_DEFER_BOOT=0
+  boot_started_roles "$root" "$DEFAULT_AGENT_CLI" "${AGENTDOCK_LAUNCHED_PAIRS[@]}"
 }
 
 cmd_team() {
@@ -1116,7 +1145,7 @@ cmd_team() {
   for id in $AGENT_IDS; do
     var="AGENT_${id//-/_}"
     eval "local cli=\"\${${var}_CLI}\""
-    IFS=$'\t' read -r _ status found version < <(detect_adapter "$cli" || printf '%s\tmissing\t\t\n' "$cli")
+    IFS=$'\t' read -r _ status found version < <(detect_adapter_cached "$cli")
     printf '%-22s %-12s %-10s\n' "$id" "$cli" "$status"
   done
 }
@@ -1131,25 +1160,53 @@ tmux_target_for_role() {
   printf '%s\n' "$pane"
 }
 
-wait_for_agent_input() {
-  local pane="$1" cli="${2:-$DEFAULT_AGENT_CLI}" timeout="${AGENTDOCK_BOOT_WAIT_SECONDS:-20}"
-  local waited=0 output
-  while (( waited < timeout * 4 )); do
-    output="$(tmux capture-pane -p -t "$pane" -S -80 2>/dev/null || true)"
-    case "$cli" in
-      hermes)
-        if printf '%s\n' "$output" | grep -Eq 'Welcome to Hermes Agent|Type your message|hermes ready|❯'; then
-          return 0
-        fi
-        ;;
-      *)
-        [[ -n "$output" ]] && return 0
-        ;;
-    esac
+agent_output_ready() {
+  local cli="$1" output="$2"
+  case "$cli" in
+    hermes)
+      printf '%s\n' "$output" | grep -Eq 'Welcome to Hermes Agent|Type your message|hermes ready|❯'
+      ;;
+    *)
+      [[ -n "$output" ]]
+      ;;
+  esac
+}
+
+send_boot_prompt() {
+  local pane="$1" role="$2"
+  tmux send-keys -t "$pane" "Read .agentdock/generated/boot-$role.md and follow it. AgentDock team members are tmux roles, not Codex native subagents. Say READY - $role when ready." C-m
+}
+
+boot_started_roles() {
+  local root="$1" cli="${2:-$DEFAULT_AGENT_CLI}" timeout="${AGENTDOCK_BOOT_WAIT_SECONDS:-20}"
+  shift 2 || true
+  local -a pairs=("$@") done=()
+  local pending="${#pairs[@]}" waited=0 i pair role pane output
+  [[ "$pending" -gt 0 ]] || return 0
+  while (( pending > 0 && waited < timeout * 4 )); do
+    for i in "${!pairs[@]}"; do
+      [[ "${done[$i]:-0}" == 1 ]] && continue
+      pair="${pairs[$i]}"
+      role="${pair%%:*}"
+      pane="${pair#*:}"
+      output="$(tmux capture-pane -p -t "$pane" -S -80 2>/dev/null || true)"
+      if agent_output_ready "$cli" "$output"; then
+        send_boot_prompt "$pane" "$role"
+        done[$i]=1
+        pending=$((pending - 1))
+      fi
+    done
+    (( pending == 0 )) && break
     sleep 0.25
     waited=$((waited + 1))
   done
-  return 0
+  for i in "${!pairs[@]}"; do
+    [[ "${done[$i]:-0}" == 1 ]] && continue
+    pair="${pairs[$i]}"
+    role="${pair%%:*}"
+    pane="${pair#*:}"
+    send_boot_prompt "$pane" "$role"
+  done
 }
 
 cmd_start() {
@@ -1171,6 +1228,7 @@ cmd_start() {
   source_runtime "$root"
   [[ -n "$layout" ]] && LAYOUT="$layout"
   regenerate_all "$root"
+  detect_adapter_cached "$DEFAULT_AGENT_CLI" >/dev/null || true
   local id var cli cmd status found version launch_ids orchestrator should_launch
   orchestrator="$(orchestrator_role "$root")"
   launch_ids="$orchestrator"
@@ -1187,7 +1245,7 @@ cmd_start() {
       cmd="$(resolved_cli_cmd "$cli")"
     fi
     [[ "$should_launch" == 1 ]] || continue
-    IFS=$'\t' read -r _ status found version < <(detect_adapter "$cli" || printf '%s\tmissing\t\t\n' "$cli")
+    IFS=$'\t' read -r _ status found version < <(detect_adapter_cached "$cli")
     if [[ "$status" != installed ]]; then
       local replacement
       replacement="$(pick_installed_cli || true)"
@@ -1215,13 +1273,20 @@ cmd_start() {
       return
     fi
   fi
-  local first=1 pane target window
+  local first=1 pane target window status found version cli
+  local -a boot_pairs=()
   : > "$root/.agentdock/state/panes.env"
   for id in $launch_ids; do
     var="AGENT_${id//-/_}"
-    eval "cmd=\"\${${var}_CMD}\" window=\"\${${var}_WINDOW}\""
+    eval "cli=\"\${${var}_CLI}\" cmd=\"\${${var}_CMD}\" window=\"\${${var}_WINDOW}\""
+    IFS=$'\t' read -r _ status found version < <(detect_adapter_cached "$cli")
+    [[ "$status" == installed ]] && cmd="$(launch_cmd_for_detected_cli "$cli" "$cmd" "$found")"
     if [[ "$first" == 1 ]]; then
-      tmux new-session -d -s "$SESSION_NAME" -n "${LAYOUT:-agents}" -c "$root"
+      if [[ "$LAYOUT" == "windows" ]]; then
+        tmux new-session -d -s "$SESSION_NAME" -n "$id" -c "$root"
+      else
+        tmux new-session -d -s "$SESSION_NAME" -n "${LAYOUT:-agents}" -c "$root"
+      fi
       pane="$(tmux display-message -p -t "$SESSION_NAME:0.0" '#{pane_id}')"
       first=0
     elif [[ "$LAYOUT" == "windows" ]]; then
@@ -1233,15 +1298,14 @@ cmd_start() {
     fi
     tmux select-pane -t "$pane" -T "$id"
     target="$pane"
-    tmux send-keys -t "$target" "cd $(quote "$root")" C-m
-    tmux send-keys -t "$target" "$cmd" C-m
-    wait_for_agent_input "$target" "$DEFAULT_AGENT_CLI"
-    tmux send-keys -t "$target" "Read .agentdock/generated/boot-$id.md and follow it. AgentDock team members are tmux roles, not Codex native subagents. Say READY - $id when ready." C-m
+    tmux send-keys -t "$target" "cd $(quote "$root") && $cmd" C-m
     printf 'PANE_%s=%q\n' "${id//-/_}" "$pane" >> "$root/.agentdock/state/panes.env"
+    boot_pairs+=("$id:$pane")
   done
   tmux set-option -t "$SESSION_NAME" pane-border-status top >/dev/null
   tmux set-option -t "$SESSION_NAME" pane-border-format ' #P #{pane_title} ' >/dev/null
   tmux set-option -t "$SESSION_NAME" status-left "[$SESSION_NAME:$LAYOUT] " >/dev/null
+  boot_started_roles "$root" "$DEFAULT_AGENT_CLI" "${boot_pairs[@]}"
   say "Started AgentDock session: $SESSION_NAME"
   [[ "$attach" == 1 ]] && exec tmux attach -t "$SESSION_NAME"
   return 0

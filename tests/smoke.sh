@@ -89,6 +89,7 @@ grep -Eq '^AGENT_ceo_orchestrator_CLI="?hermes"?$' .agentdock/config.runtime
 tmux has-session -t project-agents
 test -s .agentdock/state/panes.env
 test "$(wc -l < .agentdock/state/panes.env)" -eq 2
+tmux list-windows -t project-agents -F '#{window_name}' | grep -qx ceo-orchestrator
 grep -q PANE_legacy_codex .agentdock/state/panes.env
 "$ROOT/bin/agentdock" recruit analyst reviewer --template bmad-agent-dev --cli hermes --mission "Analyze implementation options for the active job." --instructions "Produce concise tradeoffs and hand off execution tasks."
 "$ROOT/bin/agentdock" recruit qa-check --template qa --cli hermes --mission "Verify acceptance criteria and regression risk." --instructions "Report risks and validation evidence."
