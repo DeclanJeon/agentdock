@@ -40,18 +40,22 @@ The main interaction is CEO-led:
 
 AgentDock intentionally keeps Codex, OpenCode, Gemini, Claude, and other CLIs out of the runtime path. The runtime is Hermes-only to avoid collisions with each tool's own agent/team features.
 
-## Highlights
+## Features
 
-| Capability | What it gives you |
+| Feature | What it gives you |
 | --- | --- |
-| CEO-led jobs | `adock job "..."` creates a live job and pushes the CEO past READY into team selection and execution. |
-| Real tmux roles | Team members are actual Hermes sessions in tmux panes/windows, not hidden in-process helpers. |
-| Team reuse | Each job includes a configured/running team snapshot so the CEO can reuse existing roles instead of recreating them. |
-| Template-driven recruiting | CEO can recruit BMAD-inspired roles and AgentDock supplemental roles such as CEO, CTO, planning, marketing, and QA. |
-| Durable coordination | Job state lives in `.agent-work`: task cards, inboxes, handoffs, reports, lifecycle, and shared context. |
-| Report handoff | Roles submit timestamped reports to the CEO; the CEO aggregates them into a final timestamped report. |
-| Team teardown | `adock job finish` refuses missing selected-role reports, writes the CEO report, then tears down only completed/reported worker panes. |
-| Local-first runtime | Bash, tmux, Hermes Agent, and project files. No daemon or hosted scheduler. |
+| CEO-led job orchestration | `adock job "..."` creates a live job, starts or reuses the CEO pane, and pushes it directly into team selection and execution. |
+| Real tmux workrooms | Team members are actual Hermes sessions in tmux panes/windows, so you can inspect, attach, and manage the running room. |
+| Team reuse | Every job includes a configured/running team snapshot so the CEO can reuse suitable roles instead of recreating them. |
+| Template-driven recruiting | The CEO can recruit BMAD-inspired roles and AgentDock roles for CEO, CTO, marketing, planning, and QA lanes. |
+| Task cards | Selected roles receive markdown task cards under `.agent-work/07_JOBS/JOB-*/TASKS/`. |
+| Inbox dispatch | `adock send` and job commands write durable inbox messages under `.agent-work/12_INBOX/` and also send to the tmux pane when it is running. |
+| Role reports | Roles submit `YYMMDDHH:MM:SS-<role>.md` reports with `adock job report`. |
+| CEO final reports | `adock job finish` aggregates role reports into `YYMMDDHH:MM:SS-final.md` and copies it to `.agent-work/10_REPORTS/<ceo>/`. |
+| Completion-gated teardown | `adock job finish` refuses missing selected-role reports, then tears down only completed/reported worker panes. Unfinished panes stay open. |
+| Hermes-only runtime | Runtime panes use Hermes Agent only, avoiding collisions with Codex, Claude, Gemini, or other CLIs' own agent systems. |
+| Local-first state | Bash, tmux, Hermes Agent, and project files. No daemon, hosted scheduler, or remote control plane. |
+| Release/version guard | `scripts/check-version.sh` keeps `VERSION`, README, smoke tests, and release tags synchronized. |
 
 ## Install
 
@@ -124,6 +128,20 @@ After all selected roles have reported, the CEO submits the final report and dis
 agentdock job finish --summary "Feature implemented, verified, and ready for review."
 ```
 
+## Job Lifecycle
+
+AgentDock jobs are filesystem-backed so the team can recover context across panes and sessions.
+
+| Phase | What happens |
+| --- | --- |
+| Intake | `adock job "..."` creates `.agent-work/07_JOBS/JOB-*`, writes `README.md`, `TEAM.md`, `LIFECYCLE.md`, and a CEO task card. |
+| Team selection | The CEO inspects the existing configured/running team snapshot, reuses suitable roles, and recruits only missing capabilities. |
+| Assignment | The CEO writes task cards under `TASKS/` and sends each selected role an inbox message. |
+| Execution | Roles work in real Hermes/tmux panes and coordinate through `.agent-work`. |
+| Reporting | Each selected role submits a timestamped report with `adock job report --from <role> --summary "..."`. |
+| Finalization | `adock job finish` refuses to complete if selected task cards have no matching role report. |
+| Teardown | After the final CEO report is written, only completed/reported worker panes are closed. Unfinished or unreported panes stay open. |
+
 ## Manual Delegation
 
 You can also work directly inside the CEO pane:
@@ -171,25 +189,74 @@ List templates:
 adock roles list
 ```
 
-## Commands
+## Command Reference
+
+`agentdock` and `adock` are the same CLI. `adock` is the short alias installed by `install.sh`.
+
+### Basic Commands
 
 | Command | Purpose |
 | --- | --- |
-| `adock doctor [--json]` | Check system tools, Hermes, and project initialization. |
-| `adock setup --yes` | Install or guide missing runtime dependencies. |
-| `adock init [--roles "..."] [--layout hybrid]` | Create `.agentdock` and `.agent-work`. |
-| `adock start` | Launch the tmux workroom. Default starts every configured role. |
-| `adock stop --yes` | Stop the project tmux session. |
-| `adock team` | Show configured roles and Hermes status. |
-| `adock recruit <role>` | Add/start a Hermes role in the running workroom. |
-| `adock job "..."` | Start a CEO-led job and auto-open the CEO Hermes pane. |
-| `adock job report --from <role> --summary "..."` | Submit a timestamped role report to the active job and notify the CEO. |
-| `adock job finish --summary "..."` | Mark the active job complete, write `YYMMDDHH:MM:SS-final.md` reports, and disband completed/reported worker panes. |
-| `adock delegate "..."` | Create a CEO-led job. Used internally by CEO panes. |
-| `adock-delegate --from <role> --request "..."` | Hermes-facing CEO-led job helper. |
-| `adock task "..."` | Script-friendly job creation and dispatch. |
-| `adock send <role> "..."` | Send a message file and tmux message to a role. |
-| `adock report [--json]` | Summarize session, current job, and reports. |
+| `adock version` | Print the installed AgentDock version. |
+| `adock help` | Print the command help. |
+| `adock doctor [--json]` | Detect system tools, Hermes, adapters, and project initialization state. |
+| `adock setup [--cli hermes] [--yes]` | Install or guide missing runtime dependencies. Runtime roles are Hermes-only. |
+| `adock update` | Print safe update guidance. |
+| `adock uninstall` | Print safe uninstall guidance. Project `.agentdock` and `.agent-work` are never deleted by this command. |
+
+### Project Setup
+
+| Command | Purpose |
+| --- | --- |
+| `adock init` | Initialize `.agentdock` and `.agent-work` with the default `ceo-orchestrator` role. |
+| `adock init --roles "ceo,dev,qa" --layout hybrid` | Initialize with explicit role IDs and a layout. |
+| `adock init --preset core-4` | Initialize with `orchestrator developer qa reviewer`. |
+| `adock init --force` | Regenerate AgentDock project files for an existing initialized directory. |
+| `adock role add <role> [--cli hermes]` | Add a configured project role without necessarily starting a pane. |
+| `adock assign <role> --cli hermes` | Assign a role to Hermes. Non-Hermes runtime assignment is rejected. |
+
+### Runtime And Team
+
+| Command | Purpose |
+| --- | --- |
+| `adock start` | Launch the project tmux workroom. By default it starts every configured role. |
+| `adock start --no-attach` | Start the workroom without attaching your terminal. |
+| `adock start --bootstrap-only` | Start only the CEO/orchestrator pane. Used by job intake when no session exists. |
+| `adock start --fresh --yes` | Kill the existing project session and start a fresh one. |
+| `adock start --skip-missing` | Start even if an assigned CLI is missing. Useful for smoke tests or partial environments. |
+| `adock stop --yes` | Stop the whole AgentDock tmux session, including all windows and panes. |
+| `adock team` | Show configured roles, their assigned CLI, and install status. |
+| `adock recruit <role>` | Add/configure a role if needed and start its Hermes pane when the workroom is running. |
+| `adock recruit <role> --template bmad-agent-dev --mission "..." --instructions "..."` | Recruit or update a role from a BMAD or AgentDock template with job-specific mission text. |
+| `adock send <role> "..."` | Write a durable inbox message and send it to the role's tmux pane when it is running. |
+
+### Jobs And Reports
+
+| Command | Purpose |
+| --- | --- |
+| `adock job "..."` | Create a CEO-led job, start/reuse the CEO pane, and send the CEO into team selection immediately. |
+| `adock job --no-attach "..."` | Create and dispatch a job without attaching to tmux. |
+| `adock job report --from <role> --summary "..."` | Submit a timestamped role report, copy it to `.agent-work/10_REPORTS/<role>/`, and notify the CEO. |
+| `adock job report --from <role> --file report.md` | Submit a role report from a file. |
+| `adock job finish --summary "..."` | Write the final CEO report, copy it to `.agent-work/10_REPORTS/<ceo>/`, and close only completed/reported worker panes. |
+| `adock job finish --keep-team --summary "..."` | Write the final report but leave running panes open. `--no-teardown` is an alias. |
+| `adock job status` | Show the same summary as `adock report`. |
+| `adock task "..."` | Script-friendly job creation that dispatches task cards to configured roles. |
+| `adock delegate "..."` | Create a CEO-led job. This is the user-facing form of the delegate flow. |
+| `adock-delegate --from <role> --request "..."` | Hermes-facing helper used inside role panes to create a CEO-led job from a direct user request. |
+| `adock report [--json]` | Summarize session state, configured/running roles, current job, lifecycle status, and recent reports. |
+
+### Templates And Adapters
+
+| Command | Purpose |
+| --- | --- |
+| `adock roles list` | List bundled BMAD and AgentDock role templates. |
+| `adock roles sync bmad --yes` | Sync BMAD role templates into the user config directory from the default source. |
+| `adock roles sync bmad --offline --yes` | Install bundled fallback BMAD templates without network access. |
+| `adock cli list [--json]` | List adapter registry entries and detected install status. |
+| `adock cli add --id <id> --command <cmd> --install "..."` | Add a custom adapter entry for detection/install guidance. Runtime panes still enforce Hermes. |
+| `adock install tmux --yes` | Preview or run supported system-tool install guidance. |
+| `adock install hermes --yes` | Print or run adapter install guidance when available. |
 
 ## Project Files
 
@@ -224,11 +291,12 @@ adock roles list
 ## Verify Locally
 
 ```bash
-bash -n bin/agentdock install.sh tests/smoke.sh
+bash -n bin/agentdock install.sh tests/smoke.sh scripts/check-version.sh
+bash scripts/check-version.sh
 bash tests/smoke.sh
 ```
 
-The smoke test uses a fake Hermes binary, starts tmux, validates Hermes-only runtime migration, verifies CEO-led jobs, checks role report submission, aggregates final reports, and shuts the session down.
+The smoke test uses a fake Hermes binary, starts tmux, validates Hermes-only runtime migration, verifies CEO-led jobs, checks role report submission, aggregates final reports, protects unfinished panes, and shuts the session down.
 
 ## Release
 
