@@ -17,7 +17,7 @@
 <p align="center">
   <a href="https://github.com/DeclanJeon/agentdock/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/DeclanJeon/agentdock/ci.yml?branch=main&label=ci&logo=github"></a>
   <a href="https://github.com/DeclanJeon/agentdock/releases"><img alt="Release" src="https://img.shields.io/github/v/release/DeclanJeon/agentdock?label=release&logo=github"></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.4-0f766e">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.7-0f766e">
   <img alt="Runtime" src="https://img.shields.io/badge/runtime-Hermes%20Agent-111827">
   <img alt="Shell" src="https://img.shields.io/badge/shell-Bash-4EAA25?logo=gnubash&logoColor=white">
   <img alt="tmux" src="https://img.shields.io/badge/orchestration-tmux-1f2937">
@@ -33,9 +33,10 @@ The main interaction is CEO-led:
 
 1. You create a job with `adock job "..."`.
 2. AgentDock starts the CEO/orchestrator Hermes pane if needed.
-3. The CEO reads the active job, selects the smallest useful team, and recruits missing roles with `agentdock recruit`.
+3. The CEO reads the active job, reuses suitable configured/running roles, and recruits only missing roles with `agentdock recruit`.
 4. Recruited roles work from task cards and submit results with `agentdock job report`.
 5. The CEO aggregates role reports and submits the final report with `agentdock job finish`.
+6. AgentDock disbands only completed/reported worker panes after the final CEO report is written.
 
 AgentDock intentionally keeps Codex, OpenCode, Gemini, Claude, and other CLIs out of the runtime path. The runtime is Hermes-only to avoid collisions with each tool's own agent/team features.
 
@@ -45,9 +46,11 @@ AgentDock intentionally keeps Codex, OpenCode, Gemini, Claude, and other CLIs ou
 | --- | --- |
 | CEO-led jobs | `adock job "..."` creates a live job and pushes the CEO past READY into team selection and execution. |
 | Real tmux roles | Team members are actual Hermes sessions in tmux panes/windows, not hidden in-process helpers. |
+| Team reuse | Each job includes a configured/running team snapshot so the CEO can reuse existing roles instead of recreating them. |
 | Template-driven recruiting | CEO can recruit BMAD-inspired roles and AgentDock supplemental roles such as CEO, CTO, planning, marketing, and QA. |
 | Durable coordination | Job state lives in `.agent-work`: task cards, inboxes, handoffs, reports, lifecycle, and shared context. |
 | Report handoff | Roles submit timestamped reports to the CEO; the CEO aggregates them into a final timestamped report. |
+| Team teardown | `adock job finish` refuses missing selected-role reports, writes the CEO report, then tears down only completed/reported worker panes. |
 | Local-first runtime | Bash, tmux, Hermes Agent, and project files. No daemon or hosted scheduler. |
 
 ## Install
@@ -94,9 +97,9 @@ What happens next:
 - AgentDock creates `.agentdock/` and `.agent-work/` state.
 - The CEO/orchestrator Hermes pane opens automatically when needed.
 - The active job is written under `.agent-work/07_JOBS/JOB-*`.
-- The CEO is instructed to choose templates, recruit missing roles, assign task cards, and start execution immediately.
+- The CEO is instructed to inspect the existing team, reuse suitable roles, recruit only missing roles, assign task cards, and start execution immediately.
 - Each recruited role submits results back to the CEO with `agentdock job report`.
-- The CEO finishes by writing `YYMMDDHH:MM:SS-final.md`.
+- The CEO finishes by writing `YYMMDDHH:MM:SS-final.md`, then AgentDock disbands only completed/reported worker panes.
 
 ## CEO Workflow
 
@@ -115,7 +118,7 @@ agentdock job report --from api-implementer --summary "Implemented the API chang
 agentdock job report --from qa-gate --summary "Validated acceptance criteria and smoke-tested the workflow."
 ```
 
-The CEO submits the final report:
+After all selected roles have reported, the CEO submits the final report and disbands completed/reported worker panes:
 
 ```bash
 agentdock job finish --summary "Feature implemented, verified, and ready for review."
@@ -181,7 +184,7 @@ adock roles list
 | `adock recruit <role>` | Add/start a Hermes role in the running workroom. |
 | `adock job "..."` | Start a CEO-led job and auto-open the CEO Hermes pane. |
 | `adock job report --from <role> --summary "..."` | Submit a timestamped role report to the active job and notify the CEO. |
-| `adock job finish --summary "..."` | Mark the active job complete and write `YYMMDDHH:MM:SS-final.md` reports. |
+| `adock job finish --summary "..."` | Mark the active job complete, write `YYMMDDHH:MM:SS-final.md` reports, and disband completed/reported worker panes. |
 | `adock delegate "..."` | Create a CEO-led job. Used internally by CEO panes. |
 | `adock-delegate --from <role> --request "..."` | Hermes-facing CEO-led job helper. |
 | `adock task "..."` | Script-friendly job creation and dispatch. |
@@ -234,16 +237,29 @@ This repository ships with GitHub Actions:
 - `ci.yml`: runs Bash syntax checks and the smoke test on every push and pull request.
 - `release.yml`: packages AgentDock and publishes a GitHub Release when a `v*` tag is pushed.
 
+Before tagging a release, update all version surfaces together:
+
+- `VERSION`
+- `bin/agentdock` (`AGENTDOCK_VERSION`)
+- `README.md` badge, release example, and status line
+- `tests/smoke.sh` version assertions
+
+Verify they are synchronized:
+
+```bash
+bash scripts/check-version.sh
+```
+
 Create a release:
 
 ```bash
-git tag v0.1.4
-git push origin v0.1.4
+git tag v0.1.7
+git push origin v0.1.7
 ```
 
 ## Status
 
-Version `0.1.4` is the current local release. It is intentionally Bash-first and conservative: no daemon, no hosted control plane, no hidden remote scheduler.
+Version `0.1.7` is the current local release. It is intentionally Bash-first and conservative: no daemon, no hosted control plane, no hidden remote scheduler.
 
 Current gaps:
 

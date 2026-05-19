@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-AGENTDOCK_VERSION="0.1.4"
+AGENTDOCK_VERSION="0.1.7"
 DEFAULT_AGENT_CLI="hermes"
 CLI_NAME="$(basename "$0")"
 SCRIPT_PATH="${BASH_SOURCE[0]}"
@@ -57,7 +57,7 @@ Commands:
   stop                    Stop tmux runtime
   job "..."               Start CEO-led job intake, team recruiting, and reporting
   job report --from <role> Submit a timestamped role report to the CEO
-  job finish              Finalize active job and write timestamped report
+  job finish              Finalize active job, write report, and disband worker panes
   task "..."              Create and dispatch a job
   delegate "..."          CEO/Hermes-facing alias: create and dispatch a job
   send <role> "..."       Send a message to a running role
@@ -780,12 +780,15 @@ generate_role_prompt() {
   if [[ "$id" == "ceo-orchestrator" || "$id" == "ceo" || "$id" == "orchestrator" ]]; then
     orchestration="
 ## Orchestration authority
-- You are the only role that starts by default. Do not expect a pre-running team.
-- Analyze each job, choose the smallest useful team, name the roles yourself, then recruit them.
+- You may be the only role that starts by default, but a running tmux team may already exist. Inspect the current team before recruiting.
+- Analyze each job, choose the smallest useful team, and reuse existing configured/running roles when their capability fits.
+- Recruit new roles only for missing capabilities or clearly separate parallel work lanes.
 - In AgentDock, team means tmux-backed roles started with agentdock recruit. Do not satisfy team-formation requests by using Codex native subagents or an internal team mode.
-- If a user asks to build, compose, or configure a team, create/update TEAM.md and run agentdock recruit for each needed role.
+- If a user asks to build, compose, or configure a team, create/update TEAM.md, reuse suitable existing roles, and run agentdock recruit only for missing roles.
 - Inspect bundled BMAD role templates with:
   agentdock roles list
+- Inspect configured/running roles with:
+  agentdock team
 - Recruit named specialists with a BMAD or AgentDock template when it fits:
   agentdock recruit <your-role-name> --template <template-id> --mission \"...\" --instructions \"...\"
 - When the user gives you a real work request directly in this Hermes pane, immediately run:
@@ -794,6 +797,7 @@ generate_role_prompt() {
 - For every job, write/update the selected team in the job TEAM.md file.
 - Dispatch work by writing one task card per role under the job TASKS directory and sending each role an inbox message with its task-card path.
 - Update the job LIFECYCLE.md as work moves through planned, recruited, executing, verifying, and complete.
+- Before finalizing, collect and review role reports from every selected team member; finalization refuses missing selected-role reports and disbands only completed/reported non-CEO role panes after the CEO report is written.
 - Check available adapters with: agentdock cli list
 - Delegate through task cards, inbox messages, reports, and handoffs under .agent-work.
 - Keep the team small enough to coordinate, but add roles when parallel execution or specialist review is needed.
@@ -885,16 +889,18 @@ generate_boot_prompt() {
 - AgentDock team members are real tmux panes/windows started by `agentdock recruit`.
 - Do not use Codex native subagents, OMX team mode, or any internal CLI team feature to satisfy AgentDock team formation.
 - If `.agent-work/07_JOBS/CURRENT.md` exists, you already have an active job. Do not stop at READY and do not wait for another human command.
-- For an active job, immediately read the job README and your task card, choose the needed team, recruit missing roles, assign task cards, and start execution.
-- When the user asks you to compose or configure a team, first write the plan to the current job `TEAM.md`, then recruit each needed role with `agentdock recruit`.
+- For an active job, immediately read the job README and your task card, inspect the existing configured/running team in `TEAM.md`, choose the needed team, reuse suitable running roles, recruit only missing roles, assign task cards, and start execution.
+- When the user asks you to compose or configure a team, first write the plan to the current job `TEAM.md`, reuse suitable existing roles, then recruit only missing roles with `agentdock recruit`.
 - Use `agentdock roles list` to choose templates. BMAD templates are preferred when they fit; AgentDock supplemental templates cover CEO, CTO, marketing, planning, and QA.
+- Use `agentdock team` and the `TEAM.md` existing-team snapshot before creating new role names.
 - After recruiting or when roles are already running, create/update task cards under the current job `TASKS/` directory and send each role an inbox message with its task-card path.
 - Require every recruited role to submit completed work with `agentdock job report --from <role> --summary "..."`; this writes the role report and notifies you through your inbox.
 - Before finalizing, review all role reports under the active job `REPORTS/` directory and aggregate them into the CEO final report.
+- Finalization is also team teardown: run it only after selected roles have reported, because `agentdock job finish` refuses missing selected-role reports, writes the CEO report, and then disbands only completed/reported non-CEO role panes.
 - If the user gives you work directly in this tmux pane, do not just discuss the work and do not ask the user to open another terminal. Immediately call the AgentDock delegate command with the user request:
   `adock-delegate --from __ROLE_ID__ --request "<verbatim user request>"`
-- The delegate command creates a CEO-led job under `.agent-work/07_JOBS`; you choose the team, recruit missing roles with `agentdock recruit`, assign task cards, and monitor reports.
-- When the job is complete, always run `agentdock job finish --summary "<concise final result>"` so AgentDock writes the timestamped final report.
+- The delegate command creates a CEO-led job under `.agent-work/07_JOBS`; you choose the team, reuse existing roles when possible, recruit missing roles with `agentdock recruit`, assign task cards, and monitor reports.
+- When the job is complete and selected roles have reported, always run `agentdock job finish --summary "<concise final result>"` so AgentDock writes the timestamped final report and disbands only the completed/reported running worker panes.
 EOF
 )"
     orchestrator_rules="${orchestrator_rules//__ROLE_ID__/$id}"
@@ -1445,6 +1451,107 @@ role_task_mission() {
   esac
 }
 
+write_team_snapshot() {
+  local root="$1" file="$2" coordinator="${3:-}" id var display pane status mission
+  source_runtime "$root"
+  {
+    printf '\n## Existing configured/running team\n\n'
+    printf '| Role | Display name | Runtime status | Suggested reuse |\n'
+    printf '|---|---|---|---|\n'
+    for id in $AGENT_IDS; do
+      var="AGENT_${id//-/_}"
+      eval "display=\"\${${var}_DISPLAY_NAME:-$id}\""
+      pane="$(cd "$root" && tmux_target_for_role "$id" || true)"
+      if [[ -n "$pane" ]]; then
+        status="running ($pane)"
+      else
+        status="configured"
+      fi
+      [[ "$id" == "$coordinator" ]] && status="$status; coordinator"
+      mission="$(role_task_mission "$id")"
+      printf '| %s | %s | %s | %s |\n' "$id" "$display" "$status" "$mission"
+    done
+    printf '\nReuse these roles when their capability fits the job. Recruit only missing capabilities or clearly separate parallel lanes.\n'
+  } >> "$file"
+}
+
+role_has_job_report() {
+  local job_dir="$1" role="$2" report base report_role
+  while IFS= read -r report; do
+    base="$(basename "$report" .md)"
+    report_role="${base#*-}"
+    [[ "$report_role" == "$role" ]] && return 0
+  done < <(find "$job_dir/REPORTS" -maxdepth 1 -type f -name '*.md' ! -name '*-final.md' 2>/dev/null | sort)
+  return 1
+}
+
+missing_selected_role_reports() {
+  local job_dir="$1" coordinator="$2" task id missing=0
+  [[ -d "$job_dir/TASKS" ]] || return 0
+  while IFS= read -r task; do
+    id="$(basename "$task" .md)"
+    [[ "$id" == "README" || "$id" == "$coordinator" ]] && continue
+    role_has_job_report "$job_dir" "$id" && continue
+    printf '%s\n' "$id"
+    missing=1
+  done < <(find "$job_dir/TASKS" -maxdepth 1 -type f -name '*.md' 2>/dev/null | sort)
+  return "$missing"
+}
+
+teardown_job_team() {
+  local root="$1" job_dir="$2" coordinator="$3" stamp="$4"
+  local id pane key killed_count=0 kept_count=0 pending_count=0
+  local -a killed=() kept=() pending=()
+  source_runtime "$root"
+  if ! have tmux || ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+    printf 'No running tmux session was found; no worker panes were disbanded.\n'
+    return 0
+  fi
+  for id in $AGENT_IDS; do
+    if [[ "$id" == "$coordinator" ]]; then
+      kept+=("$id (coordinator)")
+      kept_count=$((kept_count + 1))
+      continue
+    fi
+    pane="$(cd "$root" && tmux_target_for_role "$id" || true)"
+    if [[ -z "$pane" ]]; then
+      continue
+    fi
+    if ! role_has_job_report "$job_dir" "$id"; then
+      pending+=("$id ($pane; no job report)")
+      pending_count=$((pending_count + 1))
+      continue
+    fi
+    if tmux kill-pane -t "$pane" 2>/dev/null; then
+      key="PANE_${id//-/_}"
+      sed -i "/^$key=/d" "$root/.agentdock/state/panes.env" 2>/dev/null || true
+      killed+=("$id ($pane)")
+      killed_count=$((killed_count + 1))
+    fi
+  done
+  if [[ "$killed_count" -gt 0 ]]; then
+    printf 'Disbanded completed worker role pane(s): %s.\n' "${killed[*]}"
+  else
+    printf 'No completed running worker panes needed teardown.\n'
+  fi
+  if [[ "$kept_count" -gt 0 ]]; then
+    printf 'Kept coordinator pane active: %s.\n' "${kept[*]}"
+  fi
+  if [[ "$pending_count" -gt 0 ]]; then
+    printf 'Kept unfinished/unreported worker pane(s) active: %s.\n' "${pending[*]}"
+  fi
+  if [[ -f "$job_dir/LIFECYCLE.md" ]]; then
+    if [[ "$killed_count" -gt 0 ]]; then
+      printf -- '- %s teardown: disbanded completed worker panes after CEO aggregation: %s\n' "$stamp" "${killed[*]}" >> "$job_dir/LIFECYCLE.md"
+    else
+      printf -- '- %s teardown: no completed running worker panes needed teardown\n' "$stamp" >> "$job_dir/LIFECYCLE.md"
+    fi
+    if [[ "$pending_count" -gt 0 ]]; then
+      printf -- '- %s teardown: kept unfinished/unreported worker panes active: %s\n' "$stamp" "${pending[*]}" >> "$job_dir/LIFECYCLE.md"
+    fi
+  fi
+}
+
 cmd_job_start() {
   local root text="" file="" from="user" attach=1
   root="$(require_project "$@")"
@@ -1493,13 +1600,14 @@ planning
 $role
 
 ## Required CEO-led flow
-1. Read the request and inspect available templates with \`agentdock roles list\`.
-2. Choose the smallest useful team for this job. Prefer BMAD templates when they fit; use AgentDock supplemental templates for CEO, CTO, marketing, planning, and QA lanes.
-3. Recruit every missing role with \`agentdock recruit <role-name> --template <template-id> --mission "..." --instructions "..."\`. AgentDock will create tmux panes and open Hermes for those roles.
-4. Write or update one task card per selected role under \`TASKS/\`, then send each role an inbox message with its task-card path.
-5. Each role must submit completed work to the CEO with \`agentdock job report --from <role> --summary "..."\`. AgentDock writes \`YYMMDDHH:MM:SS-<role>.md\` under this job's \`REPORTS/\` directory and notifies the CEO.
-6. Keep \`TEAM.md\` and \`LIFECYCLE.md\` current as the job moves through planning, recruiting, executing, verifying, and complete.
-7. When role reports are submitted and work is complete, run \`agentdock job finish --summary "<concise final result>"\`. This aggregates role reports into the timestamped final report.
+1. Read the request and inspect the existing configured/running team in \`TEAM.md\` and \`agentdock team\`.
+2. Choose the smallest useful team for this job. Reuse existing running/configured roles when their capability fits.
+3. Inspect additional templates with \`agentdock roles list\` only when a needed capability is missing. Prefer BMAD templates when they fit; use AgentDock supplemental templates for CEO, CTO, marketing, planning, and QA lanes.
+4. Recruit only missing roles with \`agentdock recruit <role-name> --template <template-id> --mission "..." --instructions "..."\`. AgentDock reuses same-name running roles and creates tmux/Hermes panes only for missing roles.
+5. Write or update one task card per selected role under \`TASKS/\`, then send each role an inbox message with its task-card path.
+6. Each role must submit completed work to the CEO with \`agentdock job report --from <role> --summary "..."\`. AgentDock writes \`YYMMDDHH:MM:SS-<role>.md\` under this job's \`REPORTS/\` directory and notifies the CEO.
+7. Keep \`TEAM.md\` and \`LIFECYCLE.md\` current as the job moves through planning, recruiting, executing, verifying, and complete.
+8. When selected role reports are submitted and work is complete, run \`agentdock job finish --summary "<concise final result>"\`. This refuses missing selected-role reports, aggregates submitted role reports into the timestamped final report, submits the CEO report, and disbands only completed/reported non-CEO worker panes.
 EOF
 
   cat > "$job/TEAM.md" <<EOF
@@ -1513,9 +1621,11 @@ EOF
 
 ## CEO instructions
 - Add rows for every recruited role.
+- Prefer reusing the existing configured/running team listed below before creating new role names.
 - Keep role names specific to the job.
 - Prefer BMAD templates from \`agentdock roles list\`; use AgentDock supplemental templates when BMAD has no matching specialist.
 EOF
+  write_team_snapshot "$root" "$job/TEAM.md" "$role"
 
   cat > "$job/LIFECYCLE.md" <<EOF
 # Lifecycle
@@ -1527,7 +1637,7 @@ Status: planning
 - recruiting: CEO is starting missing tmux/Hermes role sessions
 - executing: task cards are being worked
 - verifying: outputs are under QA/review
-- complete: final report is written
+- complete: final report is written and completed/reported running worker panes are disbanded
 
 ## Log
 - $stamp planning: job created by $from for $role
@@ -1547,27 +1657,30 @@ $job/README.md
 $text
 
 ## Mission
-Design the smallest useful AgentDock team, recruit missing roles with \`agentdock recruit\`, assign concrete task cards, monitor execution, verify role reports, and submit the final report.
+Design the smallest useful AgentDock team, reuse suitable existing configured/running roles, recruit only missing roles with \`agentdock recruit\`, assign concrete task cards, monitor execution, verify role reports, and submit the final report.
 
 ## Required actions
-- Inspect templates with \`agentdock roles list\`.
+- Inspect existing configured/running roles in \`$job/TEAM.md\` and with \`agentdock team\`.
+- Reuse suitable existing roles before creating new role names.
+- Inspect templates with \`agentdock roles list\` only when a needed capability is missing.
 - Update \`$job/TEAM.md\` with selected roles, templates, missions, and status.
-- Recruit missing specialists with \`agentdock recruit <role-name> --template <template-id> --mission "..." --instructions "..."\`.
+- Recruit only missing specialists with \`agentdock recruit <role-name> --template <template-id> --mission "..." --instructions "..."\`.
 - Create or update task cards under \`$job/TASKS/\`.
 - Send each recruited role an inbox message that points to its task card.
 - Require each role to submit completed work with \`agentdock job report --from <role> --summary "..."\`.
 - Review submitted role reports under \`$job/REPORTS/\`.
-- When all required role reports are submitted, run \`agentdock job finish --summary "<concise final result>"\`.
+- When all required role reports are submitted, run \`agentdock job finish --summary "<concise final result>"\`; AgentDock refuses missing selected-role reports, writes the CEO report first, then disbands only completed/reported non-CEO worker panes.
 
 ## Acceptance criteria
 - Necessary Hermes/tmux role sessions are started.
+- Existing running roles are reused when they fit the job.
 - Every selected role has a task card and report expectation.
 - Every selected role submits completed work to the CEO through \`agentdock job report --from <role>\`.
-- Final report is submitted with a \`YYMMDDHH:MM:SS-final.md\` filename.
+- Final report is submitted with a \`YYMMDDHH:MM:SS-final.md\` filename before completed/reported running worker panes are disbanded.
 EOF
 
   printf 'Active job: %s\n' "$job/README.md" > "$root/.agent-work/07_JOBS/CURRENT.md"
-  msg="Active AgentDock job created: $job/README.md. Do not stop at READY and do not wait for another user command. You are the CEO/orchestrator: read $task_file, choose the needed team from templates, recruit missing roles with agentdock recruit, assign task cards, require timestamped role reports, and start execution now. Finish with agentdock job finish."
+  msg="Active AgentDock job created: $job/README.md. Do not stop at READY and do not wait for another user command. You are the CEO/orchestrator: read $task_file, choose the needed team from templates, recruit missing roles with agentdock recruit, assign task cards, require timestamped role reports, and start execution now. Finish with agentdock job finish after selected role reports are reviewed; it refuses missing selected-role reports, writes the final report, and disbands completed/reported running worker panes only."
   if [[ "$session_was_running" == 1 ]]; then
     cmd_send "$role" "$msg" --project "$root" || true
   else
@@ -1638,20 +1751,21 @@ cmd_job_report() {
 }
 
 cmd_job_finish() {
-  local root job_arg="" summary="" file=""
+  local root job_arg="" summary="" file="" teardown=1
   root="$(require_project "$@")"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --job) job_arg="${2:-}"; shift 2 ;;
       --summary) summary="${2:-}"; shift 2 ;;
       --file) file="${2:-}"; shift 2 ;;
+      --keep-team|--no-teardown) teardown=0; shift ;;
       --project) shift 2 ;;
       --project=*) shift ;;
       *) summary="${summary:+$summary }$1"; shift ;;
     esac
   done
   [[ -n "$file" ]] && summary="$(cat "$file")"
-  local job_dir stamp role report_file submitted_file tmp
+  local job_dir stamp role report_file submitted_file tmp teardown_summary missing_reports
   if [[ -n "$job_arg" ]]; then
     job_dir="$job_arg"
     [[ "$job_dir" == /* ]] || job_dir="$root/${job_dir#./}"
@@ -1661,6 +1775,10 @@ cmd_job_finish() {
   [[ -d "$job_dir" ]] || die "job directory not found: $job_dir"
   source_runtime "$root"
   role="$(orchestrator_role "$root")"
+  missing_reports="$(missing_selected_role_reports "$job_dir" "$role" || true)"
+  if [[ -n "$missing_reports" ]]; then
+    die "cannot finish job; selected role task card(s) have no job report: $(printf '%s' "$missing_reports" | tr '\n' ' '). Ask those roles to run: agentdock job report --from <role> --summary \"...\""
+  fi
   stamp="$(report_timestamp)"
   mkdir -p "$job_dir/REPORTS" "$root/.agent-work/10_REPORTS/$role"
   report_file="$job_dir/REPORTS/$stamp-final.md"
@@ -1702,15 +1820,33 @@ cmd_job_finish() {
       printf '\n'
     fi
   } > "$report_file"
-  cp "$report_file" "$submitted_file"
   if [[ -f "$job_dir/LIFECYCLE.md" ]]; then
     tmp="$job_dir/LIFECYCLE.md.tmp"
     awk 'BEGIN{done=0} /^Status:/ && done==0 { print "Status: complete"; done=1; next } { print }' "$job_dir/LIFECYCLE.md" > "$tmp"
     mv "$tmp" "$job_dir/LIFECYCLE.md"
     printf -- '- %s complete: final report written: %s\n' "$stamp" "$report_file" >> "$job_dir/LIFECYCLE.md"
   fi
+  if [[ "$teardown" == 1 ]]; then
+    teardown_summary="$(teardown_job_team "$root" "$job_dir" "$role" "$stamp")"
+    {
+      printf '\n## Team Teardown\n\n'
+      printf '%s\n' "$teardown_summary"
+    } >> "$report_file"
+  else
+    {
+      printf '\n## Team Teardown\n\n'
+      printf 'Skipped by --keep-team/--no-teardown. Running worker panes were left active.\n'
+    } >> "$report_file"
+    if [[ -f "$job_dir/LIFECYCLE.md" ]]; then
+      printf -- '- %s teardown: skipped by --keep-team/--no-teardown\n' "$stamp" >> "$job_dir/LIFECYCLE.md"
+    fi
+  fi
+  cp "$report_file" "$submitted_file"
   say "Final report: $report_file"
   say "Submitted report: $submitted_file"
+  if [[ "$teardown" == 1 ]]; then
+    say "$teardown_summary"
+  fi
 }
 
 cmd_job() {

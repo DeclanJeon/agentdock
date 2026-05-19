@@ -29,10 +29,10 @@ chmod +x "$FAKE/hermes"
 export PATH="$FAKE:$PATH"
 export XDG_CONFIG_HOME="$TMP/config"
 tmux kill-session -t project-agents 2>/dev/null || true
-"$ROOT/bin/agentdock" version | grep -q 'agentdock 0.1.4'
+"$ROOT/bin/agentdock" version | grep -q 'agentdock 0.1.7'
 ln -sf "$ROOT/bin/agentdock" "$FAKE/adock"
 ln -sf "$ROOT/bin/agentdock" "$FAKE/adock-delegate"
-adock version | grep -q 'agentdock 0.1.4'
+adock version | grep -q 'agentdock 0.1.7'
 
 MISS="$TMP/missing-hermes"
 mkdir -p "$MISS/fakebin" "$MISS/project"
@@ -128,10 +128,26 @@ JOB_README="$(sed -n 's/^Active job: //p' .agent-work/07_JOBS/CURRENT.md)"
 JOB_DIR="$(dirname "$JOB_README")"
 test -f "$JOB_DIR/TASKS/ceo-orchestrator.md"
 grep -q 'Required CEO-led flow' "$JOB_README"
+grep -q 'Existing configured/running team' "$JOB_DIR/TEAM.md"
+grep -q '| analyst | analyst | running' "$JOB_DIR/TEAM.md"
+grep -q 'Reuse these roles when their capability fits the job' "$JOB_DIR/TEAM.md"
 grep -q 'agentdock recruit' "$JOB_DIR/TASKS/ceo-orchestrator.md"
+grep -q 'Reuse suitable existing roles' "$JOB_DIR/TASKS/ceo-orchestrator.md"
 grep -q 'Created by' "$JOB_DIR/README.md"
 grep -q 'ceo-orchestrator' "$JOB_DIR/README.md"
+cat > "$JOB_DIR/TASKS/reviewer.md" <<EOF
+# Task: reviewer
+
+Owner: reviewer
+Status: assigned
+EOF
+if "$ROOT/bin/agentdock" job finish --summary "Should not finish" > "$TMP/premature-finish.out" 2>&1; then
+  echo "job finish should fail when a selected worker task has no role report" >&2
+  exit 1
+fi
+grep -q 'selected role task card(s) have no job report: reviewer' "$TMP/premature-finish.out"
 "$ROOT/bin/agentdock" job report --from analyst --summary "Analyst completed the assigned investigation"
+"$ROOT/bin/agentdock" job report --from reviewer --summary "Reviewer completed the assigned review"
 ROLE_REPORT="$(find "$JOB_DIR/REPORTS" -maxdepth 1 -type f -name '*-analyst.md' | sort | tail -1)"
 test -f "$ROLE_REPORT"
 basename "$ROLE_REPORT" | grep -Eq '^[0-9]{8}:[0-9]{2}:[0-9]{2}-analyst\.md$'
@@ -144,7 +160,18 @@ test -f "$FINAL_REPORT"
 basename "$FINAL_REPORT" | grep -Eq '^[0-9]{8}:[0-9]{2}:[0-9]{2}-final\.md$'
 grep -q 'Delegate job complete' "$FINAL_REPORT"
 grep -q 'Analyst completed the assigned investigation' "$FINAL_REPORT"
+grep -q 'Reviewer completed the assigned review' "$FINAL_REPORT"
+grep -q 'Team Teardown' "$FINAL_REPORT"
+grep -q 'Disbanded completed worker role pane' "$FINAL_REPORT"
+grep -q 'Kept unfinished/unreported worker pane' "$FINAL_REPORT"
+grep -q 'teardown: disbanded completed worker panes after CEO aggregation' "$JOB_DIR/LIFECYCLE.md"
+grep -q 'teardown: kept unfinished/unreported worker panes active' "$JOB_DIR/LIFECYCLE.md"
 test -f ".agent-work/10_REPORTS/ceo-orchestrator/$(basename "$FINAL_REPORT")"
+grep -q PANE_ceo_orchestrator .agentdock/state/panes.env
+! grep -q PANE_analyst .agentdock/state/panes.env
+! grep -q PANE_reviewer .agentdock/state/panes.env
+grep -q PANE_qa_check .agentdock/state/panes.env
+grep -q PANE_legacy_codex .agentdock/state/panes.env
 "$ROOT/bin/agentdock" report > "$TMP/report.out"
 grep -q 'AgentDock Report' "$TMP/report.out"
 grep -q 'Current team plan' "$TMP/report.out"
@@ -159,6 +186,8 @@ JOB_README="$(sed -n 's/^Active job: //p' .agent-work/07_JOBS/CURRENT.md)"
 JOB_DIR="$(dirname "$JOB_README")"
 test -f "$JOB_DIR/TASKS/ceo-orchestrator.md"
 grep -q 'Required CEO-led flow' "$JOB_README"
+grep -q 'Existing configured/running team' "$JOB_DIR/TEAM.md"
+grep -q '| analyst | analyst | configured' "$JOB_DIR/TEAM.md"
 grep -q 'agentdock job finish' "$JOB_DIR/TASKS/ceo-orchestrator.md"
 "$ROOT/bin/agentdock" job report --from ceo-orchestrator --summary "CEO coordinated the smoke job"
 "$ROOT/bin/agentdock" job finish --summary "CEO-led smoke done"
