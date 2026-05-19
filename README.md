@@ -1,7 +1,17 @@
 # AgentDock
 
 <p align="center">
+  <a href="https://github.com/DeclanJeon/agentdock">
+    <img alt="AgentDock on GitHub" src="https://img.shields.io/badge/GitHub-AgentDock-181717?style=for-the-badge&logo=github&logoColor=white">
+  </a>
+</p>
+
+<p align="center">
   <strong>Hermes-only tmux workrooms for local multi-agent coding teams.</strong>
+</p>
+
+<p align="center">
+  Start one CEO agent, hand it a job, and let it recruit the right local Hermes roles, assign task cards, collect role reports, and submit a final report.
 </p>
 
 <p align="center">
@@ -13,19 +23,32 @@
   <img alt="tmux" src="https://img.shields.io/badge/orchestration-tmux-1f2937">
 </p>
 
-AgentDock turns a normal project directory into a local multi-agent workroom. It starts real Hermes Agent sessions in tmux panes, gives each pane a durable role, and routes work through filesystem-backed job cards, inboxes, reports, and handoffs under `.agent-work`.
+---
 
-The important difference: the user works from the CEO/orchestrator Hermes pane. You do not need to keep running task commands in a second terminal. Give the CEO a job in natural language, and the CEO uses AgentDock's delegate helper to distribute task cards to the running role panes.
+## Overview
 
-## What It Does
+AgentDock turns any project directory into a local multi-agent workroom. It starts Hermes Agent sessions in tmux panes, gives each pane a durable role, and coordinates work through filesystem-backed job cards, inboxes, reports, handoffs, and lifecycle files under `.agent-work`.
 
-- Starts Hermes Agent roles inside a project-scoped tmux session.
-- Uses `adock` as a short CLI and keeps `agentdock` as the compatibility command.
-- Boots each role with generated instructions, shared context, inbox/outbox paths, and job lifecycle rules.
-- Lets the CEO/orchestrator dispatch work from inside Hermes with `adock-delegate`.
-- Supports BMAD-inspired role templates plus AgentDock supplemental roles such as CEO, CTO, marketing, planner, and QA.
-- Keeps Codex/OpenCode/Gemini/Claude out of the AgentDock runtime path to avoid collisions with their own team features.
-- Runs fully local: Bash, tmux, Hermes Agent, project files.
+The main interaction is CEO-led:
+
+1. You create a job with `adock job "..."`.
+2. AgentDock starts the CEO/orchestrator Hermes pane if needed.
+3. The CEO reads the active job, selects the smallest useful team, and recruits missing roles with `agentdock recruit`.
+4. Recruited roles work from task cards and submit results with `agentdock job report`.
+5. The CEO aggregates role reports and submits the final report with `agentdock job finish`.
+
+AgentDock intentionally keeps Codex, OpenCode, Gemini, Claude, and other CLIs out of the runtime path. The runtime is Hermes-only to avoid collisions with each tool's own agent/team features.
+
+## Highlights
+
+| Capability | What it gives you |
+| --- | --- |
+| CEO-led jobs | `adock job "..."` creates a live job and pushes the CEO past READY into team selection and execution. |
+| Real tmux roles | Team members are actual Hermes sessions in tmux panes/windows, not hidden in-process helpers. |
+| Template-driven recruiting | CEO can recruit BMAD-inspired roles and AgentDock supplemental roles such as CEO, CTO, planning, marketing, and QA. |
+| Durable coordination | Job state lives in `.agent-work`: task cards, inboxes, handoffs, reports, lifecycle, and shared context. |
+| Report handoff | Roles submit timestamped reports to the CEO; the CEO aggregates them into a final timestamped report. |
+| Local-first runtime | Bash, tmux, Hermes Agent, and project files. No daemon or hosted scheduler. |
 
 ## Install
 
@@ -48,7 +71,7 @@ AgentDock requires:
 - `git`
 - `Hermes Agent`
 
-If Hermes is missing, AgentDock points users to the official installer:
+If Hermes is missing, AgentDock prints the official installer:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
@@ -66,22 +89,54 @@ adock init
 adock job "Analyze this project and propose the smallest implementation team for the first feature."
 ```
 
-`adock job` starts the CEO/orchestrator Hermes pane when needed, creates a job under `.agent-work/07_JOBS`, and asks the CEO to choose templates, recruit the needed tmux/Hermes roles, assign task cards, collect role reports, and submit a timestamped final report.
+What happens next:
 
-Inside the first tmux pane, you can also tell the CEO/orchestrator what to do:
+- AgentDock creates `.agentdock/` and `.agent-work/` state.
+- The CEO/orchestrator Hermes pane opens automatically when needed.
+- The active job is written under `.agent-work/07_JOBS/JOB-*`.
+- The CEO is instructed to choose templates, recruit missing roles, assign task cards, and start execution immediately.
+- Each recruited role submits results back to the CEO with `agentdock job report`.
+- The CEO finishes by writing `YYMMDDHH:MM:SS-final.md`.
+
+## CEO Workflow
+
+Inside the CEO pane, the normal flow is:
+
+```bash
+agentdock roles list
+agentdock recruit api-implementer --template bmad-agent-dev --mission "Implement backend changes from task cards."
+agentdock recruit qa-gate --template agentdock-qa --mission "Verify behavior and regression risk."
+```
+
+Each role then reports completed work:
+
+```bash
+agentdock job report --from api-implementer --summary "Implemented the API change, ran tests, no known blockers."
+agentdock job report --from qa-gate --summary "Validated acceptance criteria and smoke-tested the workflow."
+```
+
+The CEO submits the final report:
+
+```bash
+agentdock job finish --summary "Feature implemented, verified, and ready for review."
+```
+
+## Manual Delegation
+
+You can also work directly inside the CEO pane:
 
 ```txt
 CEO, analyze this task, assign the needed team roles, and make the team execute it:
 <your work request>
 ```
 
-The CEO pane calls:
+The CEO pane can call:
 
 ```bash
 adock-delegate --from orchestrator --request "<your work request>"
 ```
 
-AgentDock then creates a CEO-led job under `.agent-work/07_JOBS`. The CEO chooses the smallest useful team, recruits missing roles with `agentdock recruit`, assigns task cards, collects role reports through `agentdock job report`, and finishes with `agentdock job finish`.
+That creates the same CEO-led job flow as `adock job`.
 
 ## Team Layouts
 
@@ -124,7 +179,7 @@ adock roles list
 | `adock stop --yes` | Stop the project tmux session. |
 | `adock team` | Show configured roles and Hermes status. |
 | `adock recruit <role>` | Add/start a Hermes role in the running workroom. |
-| `adock job "..."` | Start a CEO-led job, auto-open the CEO Hermes pane, and ask the CEO to recruit the needed team. |
+| `adock job "..."` | Start a CEO-led job and auto-open the CEO Hermes pane. |
 | `adock job report --from <role> --summary "..."` | Submit a timestamped role report to the active job and notify the CEO. |
 | `adock job finish --summary "..."` | Mark the active job complete and write `YYMMDDHH:MM:SS-final.md` reports. |
 | `adock delegate "..."` | Create a CEO-led job. Used internally by CEO panes. |
@@ -163,20 +218,6 @@ adock roles list
 
 `.agentdock` is runtime configuration. `.agent-work` is the durable coordination layer between agents. Both are intentionally ignored by git.
 
-## CI/CD
-
-This repository ships with GitHub Actions:
-
-- `ci.yml`: runs Bash syntax checks and the smoke test on every push and pull request.
-- `release.yml`: when a `v*` tag is pushed, packages AgentDock and publishes a GitHub Release.
-
-Create a release:
-
-```bash
-git tag v0.1.4
-git push origin v0.1.4
-```
-
 ## Verify Locally
 
 ```bash
@@ -184,7 +225,21 @@ bash -n bin/agentdock install.sh tests/smoke.sh
 bash tests/smoke.sh
 ```
 
-The smoke test uses a fake Hermes binary, starts tmux, validates Hermes-only runtime migration, verifies `adock-delegate`, dispatches task cards, and shuts the session down.
+The smoke test uses a fake Hermes binary, starts tmux, validates Hermes-only runtime migration, verifies CEO-led jobs, checks role report submission, aggregates final reports, and shuts the session down.
+
+## Release
+
+This repository ships with GitHub Actions:
+
+- `ci.yml`: runs Bash syntax checks and the smoke test on every push and pull request.
+- `release.yml`: packages AgentDock and publishes a GitHub Release when a `v*` tag is pushed.
+
+Create a release:
+
+```bash
+git tag v0.1.4
+git push origin v0.1.4
+```
 
 ## Status
 
