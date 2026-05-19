@@ -29,10 +29,10 @@ chmod +x "$FAKE/hermes"
 export PATH="$FAKE:$PATH"
 export XDG_CONFIG_HOME="$TMP/config"
 tmux kill-session -t project-agents 2>/dev/null || true
-"$ROOT/bin/agentdock" version | grep -q 'agentdock 0.1.0'
+"$ROOT/bin/agentdock" version | grep -q 'agentdock 0.1.4'
 ln -sf "$ROOT/bin/agentdock" "$FAKE/adock"
 ln -sf "$ROOT/bin/agentdock" "$FAKE/adock-delegate"
-adock version | grep -q 'agentdock 0.1.0'
+adock version | grep -q 'agentdock 0.1.4'
 
 MISS="$TMP/missing-hermes"
 mkdir -p "$MISS/fakebin" "$MISS/project"
@@ -86,17 +86,22 @@ grep -q agentdock-qa "$TMP/roles.out"
 test -f "$XDG_CONFIG_HOME/agentdock/roles/bmad/bmad-agent-dev.md"
 "$ROOT/bin/agentdock" start --no-attach --skip-missing
 grep -Eq '^AGENT_ceo_orchestrator_CLI="?hermes"?$' .agentdock/config.runtime
+grep -q 'Assigned CLI: hermes' .agentdock/generated/boot-legacy-codex.md
 tmux has-session -t project-agents
 test -s .agentdock/state/panes.env
 test "$(wc -l < .agentdock/state/panes.env)" -eq 2
 tmux list-windows -t project-agents -F '#{window_name}' | grep -qx ceo-orchestrator
 grep -q PANE_legacy_codex .agentdock/state/panes.env
+tmux capture-pane -p -S -2000 -t project-agents:ceo-orchestrator.0 | grep -F "$TMP/project/.agentdock/generated/boot-ceo-orchestrator.md"
+tmux capture-pane -p -S -2000 -t project-agents:ceo-orchestrator.0 | grep -F -- "--- BEGIN AGENTDOCK BOOT ceo-orchestrator ---"
 "$ROOT/bin/agentdock" recruit analyst reviewer --template bmad-agent-dev --cli hermes --mission "Analyze implementation options for the active job." --instructions "Produce concise tradeoffs and hand off execution tasks."
 "$ROOT/bin/agentdock" recruit qa-check --template qa --cli hermes --mission "Verify acceptance criteria and regression risk." --instructions "Report risks and validation evidence."
 grep -q PANE_analyst .agentdock/state/panes.env
 grep -q PANE_reviewer .agentdock/state/panes.env
 grep -q PANE_qa_check .agentdock/state/panes.env
 grep -q PANE_ceo_orchestrator .agentdock/state/panes.env
+tmux capture-pane -p -S -2000 -t project-agents:reviewer.0 | grep -F -- "--- BEGIN AGENTDOCK BOOT reviewer ---"
+tmux capture-pane -p -S -2000 -t project-agents:qa-check.0 | grep -F -- "--- BEGIN AGENTDOCK BOOT qa-check ---"
 grep -q "Analyze implementation options" .agentdock/prompts/analyst.md
 grep -q "Analyze implementation options" .agentdock/prompts/reviewer.md
 grep -q "QA / Quality Engineer" .agentdock/prompts/qa-check.md
@@ -122,16 +127,45 @@ test -f .agent-work/07_JOBS/CURRENT.md
 JOB_README="$(sed -n 's/^Active job: //p' .agent-work/07_JOBS/CURRENT.md)"
 JOB_DIR="$(dirname "$JOB_README")"
 test -f "$JOB_DIR/TASKS/ceo-orchestrator.md"
-test -f "$JOB_DIR/TASKS/analyst.md"
+grep -q 'Required CEO-led flow' "$JOB_README"
+grep -q 'agentdock recruit' "$JOB_DIR/TASKS/ceo-orchestrator.md"
 grep -q 'Created by' "$JOB_DIR/README.md"
 grep -q 'ceo-orchestrator' "$JOB_DIR/README.md"
-grep -q "$JOB_DIR/TASKS/analyst.md" .agent-work/12_INBOX/analyst/*.md
+"$ROOT/bin/agentdock" job report --from analyst --summary "Analyst completed the assigned investigation"
+ROLE_REPORT="$(find "$JOB_DIR/REPORTS" -maxdepth 1 -type f -name '*-analyst.md' | sort | tail -1)"
+test -f "$ROLE_REPORT"
+basename "$ROLE_REPORT" | grep -Eq '^[0-9]{8}:[0-9]{2}:[0-9]{2}-analyst\.md$'
+grep -q 'Analyst completed the assigned investigation' "$ROLE_REPORT"
+grep -q "$ROLE_REPORT" .agent-work/12_INBOX/ceo-orchestrator/*.md
+test -f ".agent-work/10_REPORTS/analyst/$(basename "$ROLE_REPORT")"
+"$ROOT/bin/agentdock" job finish --summary "Delegate job complete"
+FINAL_REPORT="$(find "$JOB_DIR/REPORTS" -maxdepth 1 -type f -name '*-final.md' | sort | tail -1)"
+test -f "$FINAL_REPORT"
+basename "$FINAL_REPORT" | grep -Eq '^[0-9]{8}:[0-9]{2}:[0-9]{2}-final\.md$'
+grep -q 'Delegate job complete' "$FINAL_REPORT"
+grep -q 'Analyst completed the assigned investigation' "$FINAL_REPORT"
+test -f ".agent-work/10_REPORTS/ceo-orchestrator/$(basename "$FINAL_REPORT")"
 "$ROOT/bin/agentdock" report > "$TMP/report.out"
 grep -q 'AgentDock Report' "$TMP/report.out"
 grep -q 'Current team plan' "$TMP/report.out"
 "$ROOT/bin/agentdock" stop --yes
 ! tmux has-session -t project-agents 2>/dev/null
 grep -Eq '^AGENT_legacy_codex_CLI="?hermes"?$' .agentdock/config.runtime
+"$ROOT/bin/agentdock" job --no-attach "CEO-led smoke job"
+tmux has-session -t project-agents
+grep -q 'Do not stop at READY' .agent-work/12_INBOX/ceo-orchestrator/*.md
+grep -q 'start execution now' .agent-work/12_INBOX/ceo-orchestrator/*.md
+JOB_README="$(sed -n 's/^Active job: //p' .agent-work/07_JOBS/CURRENT.md)"
+JOB_DIR="$(dirname "$JOB_README")"
+test -f "$JOB_DIR/TASKS/ceo-orchestrator.md"
+grep -q 'Required CEO-led flow' "$JOB_README"
+grep -q 'agentdock job finish' "$JOB_DIR/TASKS/ceo-orchestrator.md"
+"$ROOT/bin/agentdock" job report --from ceo-orchestrator --summary "CEO coordinated the smoke job"
+"$ROOT/bin/agentdock" job finish --summary "CEO-led smoke done"
+FINAL_REPORT="$(find "$JOB_DIR/REPORTS" -maxdepth 1 -type f -name '*-final.md' | sort | tail -1)"
+grep -q 'CEO-led smoke done' "$FINAL_REPORT"
+grep -q 'CEO coordinated the smoke job' "$FINAL_REPORT"
+"$ROOT/bin/agentdock" stop --yes
 "$ROOT/bin/agentdock" start --no-attach --skip-missing > "$TMP/start-all.out"
 grep -Eq '^AGENT_legacy_codex_CLI="?hermes"?$' .agentdock/config.runtime
 "$ROOT/bin/agentdock" stop --yes

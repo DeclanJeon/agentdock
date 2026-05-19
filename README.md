@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://github.com/DeclanJeon/agentdock/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/DeclanJeon/agentdock/ci.yml?branch=main&label=ci&logo=github"></a>
   <a href="https://github.com/DeclanJeon/agentdock/releases"><img alt="Release" src="https://img.shields.io/github/v/release/DeclanJeon/agentdock?label=release&logo=github"></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.0-0f766e">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.4-0f766e">
   <img alt="Runtime" src="https://img.shields.io/badge/runtime-Hermes%20Agent-111827">
   <img alt="Shell" src="https://img.shields.io/badge/shell-Bash-4EAA25?logo=gnubash&logoColor=white">
   <img alt="tmux" src="https://img.shields.io/badge/orchestration-tmux-1f2937">
@@ -63,10 +63,12 @@ mkdir -p ~/work/my-project
 cd ~/work/my-project
 
 adock init
-adock start
+adock job "Analyze this project and propose the smallest implementation team for the first feature."
 ```
 
-Inside the first tmux pane, tell the CEO/orchestrator what to do:
+`adock job` starts the CEO/orchestrator Hermes pane when needed, creates a job under `.agent-work/07_JOBS`, and asks the CEO to choose templates, recruit the needed tmux/Hermes roles, assign task cards, collect role reports, and submit a timestamped final report.
+
+Inside the first tmux pane, you can also tell the CEO/orchestrator what to do:
 
 ```txt
 CEO, analyze this task, assign the needed team roles, and make the team execute it:
@@ -79,7 +81,7 @@ The CEO pane calls:
 adock-delegate --from orchestrator --request "<your work request>"
 ```
 
-AgentDock then creates a job under `.agent-work/07_JOBS`, writes one task card per configured role, and sends inbox messages to the running Hermes panes.
+AgentDock then creates a CEO-led job under `.agent-work/07_JOBS`. The CEO chooses the smallest useful team, recruits missing roles with `agentdock recruit`, assigns task cards, collects role reports through `agentdock job report`, and finishes with `agentdock job finish`.
 
 ## Team Layouts
 
@@ -122,8 +124,11 @@ adock roles list
 | `adock stop --yes` | Stop the project tmux session. |
 | `adock team` | Show configured roles and Hermes status. |
 | `adock recruit <role>` | Add/start a Hermes role in the running workroom. |
-| `adock delegate "..."` | Create and dispatch a job. Used internally by CEO panes. |
-| `adock-delegate --from <role> --request "..."` | Hermes-facing dispatch helper. |
+| `adock job "..."` | Start a CEO-led job, auto-open the CEO Hermes pane, and ask the CEO to recruit the needed team. |
+| `adock job report --from <role> --summary "..."` | Submit a timestamped role report to the active job and notify the CEO. |
+| `adock job finish --summary "..."` | Mark the active job complete and write `YYMMDDHH:MM:SS-final.md` reports. |
+| `adock delegate "..."` | Create a CEO-led job. Used internally by CEO panes. |
+| `adock-delegate --from <role> --request "..."` | Hermes-facing CEO-led job helper. |
 | `adock task "..."` | Script-friendly job creation and dispatch. |
 | `adock send <role> "..."` | Send a message file and tmux message to a role. |
 | `adock report [--json]` | Summarize session, current job, and reports. |
@@ -168,8 +173,8 @@ This repository ships with GitHub Actions:
 Create a release:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.4
+git push origin v0.1.4
 ```
 
 ## Verify Locally
@@ -183,7 +188,7 @@ The smoke test uses a fake Hermes binary, starts tmux, validates Hermes-only run
 
 ## Status
 
-Version `0.1.0` is the first usable release. It is intentionally Bash-first and conservative: no daemon, no hosted control plane, no hidden remote scheduler.
+Version `0.1.4` is the current local release. It is intentionally Bash-first and conservative: no daemon, no hosted control plane, no hidden remote scheduler.
 
 Current gaps:
 
