@@ -58,6 +58,15 @@ AgentDock intentionally keeps Codex, OpenCode, Gemini, Claude, and other CLIs ou
 | Safer project isolation | New projects use a root-hash tmux session name, reducing collisions between directories with the same basename. |
 | Release/version guard | `scripts/check-version.sh` keeps `VERSION`, README, smoke tests, and release tags synchronized. |
 
+## What's New In 0.1.8
+
+- Faster Hermes workroom startup with compact worker boot prompts, boot-prompt content caching, and shorter configurable boot waits.
+- Better team communication through `adock broadcast`, role inbox digests, `adock watch`, selected-team routing, mention routing, and common role aliases such as `@qa` and `@reviewer`.
+- Lower coordination overhead with per-job `SELECTED_ROLES` caching and broadcast log rotation.
+- Safer local configuration parsing: runtime and adapter config files are parsed as key-value data instead of sourced as shell scripts, and adapter install commands use allowlisted patterns.
+- More reliable local operations with root-hash tmux session names, microsecond report timestamps, locked pane-state updates, JSON escaping fixes, and release `SHA256SUMS`.
+- New `adock report --fast` for a lightweight status snapshot when the full report scan is unnecessary.
+
 ## Install
 
 ```bash
