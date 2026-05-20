@@ -17,7 +17,7 @@
 <p align="center">
   <a href="https://github.com/DeclanJeon/agentdock/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/DeclanJeon/agentdock/ci.yml?branch=main&label=ci&logo=github"></a>
   <a href="https://github.com/DeclanJeon/agentdock/releases"><img alt="Release" src="https://img.shields.io/github/v/release/DeclanJeon/agentdock?label=release&logo=github"></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.7-0f766e">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.1.8-0f766e">
   <img alt="Runtime" src="https://img.shields.io/badge/runtime-Hermes%20Agent-111827">
   <img alt="Shell" src="https://img.shields.io/badge/shell-Bash-4EAA25?logo=gnubash&logoColor=white">
   <img alt="tmux" src="https://img.shields.io/badge/orchestration-tmux-1f2937">
@@ -55,6 +55,7 @@ AgentDock intentionally keeps Codex, OpenCode, Gemini, Claude, and other CLIs ou
 | Completion-gated teardown | `adock job finish` refuses missing selected-role reports, then tears down only completed/reported worker panes. Unfinished panes stay open. |
 | Hermes-only runtime | Runtime panes use Hermes Agent only, avoiding collisions with Codex, Claude, Gemini, or other CLIs' own agent systems. |
 | Local-first state | Bash, tmux, Hermes Agent, and project files. No daemon, hosted scheduler, or remote control plane. |
+| Safer project isolation | New projects use a root-hash tmux session name, reducing collisions between directories with the same basename. |
 | Release/version guard | `scripts/check-version.sh` keeps `VERSION`, README, smoke tests, and release tags synchronized. |
 
 ## Install
@@ -70,6 +71,8 @@ Make sure `~/.local/bin` is on your `PATH`, then verify:
 ```bash
 adock doctor
 ```
+
+Release archives also publish `SHA256SUMS`; when installing from a release tarball, verify the archive before running `install.sh`.
 
 AgentDock requires:
 
@@ -229,6 +232,22 @@ adock roles list
 | `adock recruit <role>` | Add/configure a role if needed and start its Hermes pane when the workroom is running. |
 | `adock recruit <role> --template bmad-agent-dev --mission "..." --instructions "..."` | Recruit or update a role from a BMAD or AgentDock template with job-specific mission text. |
 | `adock send <role> "..."` | Write a durable inbox message and send it to the role's tmux pane when it is running. |
+| `adock send all "..."` | Alias for broadcasting a message to every configured role. |
+| `adock broadcast "..."` | Append a shared team broadcast to `.agent-work/14_SHARED_CONTEXT/BROADCASTS.md` and deliver it to all role inboxes/running panes. |
+| `adock broadcast --to dev,qa "..."` | Broadcast to an explicit comma-separated role list. Common aliases such as `qa`, `dev`, `reviewer`, `ceo`, and `analyst` resolve to matching configured roles. |
+| `adock broadcast "@qa verify this"` | Automatically route to mentioned roles or aliases when no `--to` or `--selected` target is given. |
+| `adock broadcast --selected "..."` | Broadcast to roles selected by the active job's task cards, falling back to all configured roles. |
+| `adock inbox [role]` | Show a quick digest of role inboxes and recent broadcasts. Use `--unread` and `--mark-read` for role-level read markers. |
+| `adock watch <role> --once` | Poll unread inbox messages for a role and mark them read. Omit `--once` for continuous polling. |
+| `adock report --fast` | Print a lightweight project/session/job status without scanning report lists or printing team plans. |
+
+AgentDock uses a compact worker boot prompt by default so recruited non-CEO roles start faster and caches generated boot prompts when their content has not changed. Set `AGENTDOCK_FULL_WORKER_BOOT=1` if you want full worker boot instructions. AgentDock waits up to 8 seconds by default for a newly started Hermes pane to show readiness before pasting the boot prompt. Override with `AGENTDOCK_BOOT_WAIT_SECONDS=<seconds>` when your environment needs more startup time.
+
+Job kickoff and role-report events are also written to `.agent-work/14_SHARED_CONTEXT/BROADCASTS.md` and broadcast to the selected job team when task cards exist, falling back to all configured roles. The selected role list is cached in each job's `SELECTED_ROLES` file and refreshed when task cards change. This keeps a shared decision stream while reducing noise for non-selected roles.
+
+Broadcast logs rotate automatically when `.agent-work/14_SHARED_CONTEXT/BROADCASTS.md` exceeds 256 KiB. Override with `AGENTDOCK_BROADCAST_MAX_BYTES=<bytes>`.
+
+Broadcast messages are truncated for pane delivery at 1200 characters by default (`AGENTDOCK_BROADCAST_MESSAGE_LIMIT`). Role-report broadcast summaries are truncated at 800 characters by default (`AGENTDOCK_REPORT_BROADCAST_LIMIT`); the full report remains in the report file.
 
 ### Jobs And Reports
 
@@ -251,7 +270,7 @@ adock roles list
 | Command | Purpose |
 | --- | --- |
 | `adock roles list` | List bundled BMAD and AgentDock role templates. |
-| `adock roles sync bmad --yes` | Sync BMAD role templates into the user config directory from the default source. |
+| `adock roles sync bmad --yes` | Verify the default BMAD source is reachable and contains expected IDs, then install AgentDock's bundled BMAD-compatible summaries into the user config directory. |
 | `adock roles sync bmad --offline --yes` | Install bundled fallback BMAD templates without network access. |
 | `adock cli list [--json]` | List adapter registry entries and detected install status. |
 | `adock cli add --id <id> --command <cmd> --install "..."` | Add a custom adapter entry for detection/install guidance. Runtime panes still enforce Hermes. |
@@ -288,6 +307,14 @@ adock roles list
 
 `.agentdock` is runtime configuration. `.agent-work` is the durable coordination layer between agents. Both are intentionally ignored by git.
 
+## Security / Trust Model
+
+AgentDock is local-first but not sandboxed. Project runtime files such as `.agentdock/config.runtime` and adapter files under `~/.config/agentdock/adapters/*.conf` are parsed as simple key-value configuration rather than sourced as shell scripts. Installation commands stored in adapter configuration are trusted local operator input and are executed only through explicit install flows using allowlisted command patterns.
+
+User job requests are written as `BEGIN_UNTRUSTED_USER_REQUEST` task data. Agents are instructed not to treat those blocks, inbox messages, or role reports as higher-priority system instructions. `adock send` also injects text into a running tmux pane, so use it as a trusted operator command.
+
+Hermes installation guidance may include the upstream Hermes `curl | bash` installer. That installer is maintained outside AgentDock and is not covered by AgentDock release checksums.
+
 ## Verify Locally
 
 ```bash
@@ -321,16 +348,19 @@ bash scripts/check-version.sh
 Create a release:
 
 ```bash
-git tag v0.1.7
-git push origin v0.1.7
+git tag v0.1.8
+git push origin v0.1.8
 ```
+
+Release artifacts include `SHA256SUMS` so users can verify downloaded archives before installing.
 
 ## Status
 
-Version `0.1.7` is the current local release. It is intentionally Bash-first and conservative: no daemon, no hosted control plane, no hidden remote scheduler.
+Version `0.1.8` is the current local release. It is intentionally Bash-first and conservative: no daemon, no hosted control plane, no hidden remote scheduler.
 
 Current gaps:
 
 - Worktree mode is configured but not implemented.
 - Real Hermes authentication remains the user's responsibility.
 - `update` and `uninstall` print safe guidance instead of managing hosted releases.
+- Adapter install commands are trusted local configuration, must match AgentDock's allowlisted install patterns, and should only be added from sources you control.

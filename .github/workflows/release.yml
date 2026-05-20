@@ -38,6 +38,7 @@ jobs:
           cp -R README.md VERSION install.sh bin adapters tests scripts "dist/${pkg}/"
           tar -C dist -czf "dist/${pkg}.tar.gz" "${pkg}"
           (cd dist && zip -qr "${pkg}.zip" "${pkg}")
+          (cd dist && sha256sum "${pkg}.tar.gz" "${pkg}.zip" > SHA256SUMS)
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
@@ -51,8 +52,14 @@ jobs:
             Install:
 
             ```bash
-            curl -L https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/agentdock-${{ github.ref_name }}.tar.gz
+            curl -L -o agentdock-${{ github.ref_name }}.tar.gz https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/agentdock-${{ github.ref_name }}.tar.gz
+            curl -L -o SHA256SUMS https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/SHA256SUMS
+            sha256sum -c SHA256SUMS
+            tar -xzf agentdock-${{ github.ref_name }}.tar.gz
+            cd agentdock-${{ github.ref_name }}
+            ./install.sh --prefix "$HOME/.local"
             ```
           files: |
             dist/*.tar.gz
             dist/*.zip
+            dist/SHA256SUMS

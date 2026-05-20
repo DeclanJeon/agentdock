@@ -3,8 +3,37 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d)"
+
+if (( BASH_VERSINFO[0] < 4 )); then
+  echo "smoke test requires Bash 4+" >&2
+  exit 1
+fi
+for tool in tmux awk sed grep find sort cksum mktemp; do
+  command -v "$tool" >/dev/null 2>&1 || { echo "missing required tool: $tool" >&2; exit 1; }
+done
+if ! command -v python3 >/dev/null 2>&1 && ! command -v node >/dev/null 2>&1; then
+  echo "smoke test requires python3 or node for JSON validation" >&2
+  exit 1
+fi
+
+json_validate() {
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -m json.tool >/dev/null
+  else
+    node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>JSON.parse(s));'
+  fi
+}
+
+replace_in_file() {
+  local expr="$1" file="$2" tmp
+  tmp="$(mktemp "${TMPDIR:-/tmp}/agentdock-sed.XXXXXX")"
+  sed "$expr" "$file" > "$tmp"
+  mv "$tmp" "$file"
+}
+
 cleanup() {
   if command -v tmux >/dev/null 2>&1; then
+    [[ -n "${SESSION:-}" ]] && tmux kill-session -t "$SESSION" 2>/dev/null || true
     tmux kill-session -t project-agents 2>/dev/null || true
   fi
   rm -rf "$TMP"
@@ -29,10 +58,10 @@ chmod +x "$FAKE/hermes"
 export PATH="$FAKE:$PATH"
 export XDG_CONFIG_HOME="$TMP/config"
 tmux kill-session -t project-agents 2>/dev/null || true
-"$ROOT/bin/agentdock" version | grep -q 'agentdock 0.1.7'
+"$ROOT/bin/agentdock" version | grep -q 'agentdock 0.1.8'
 ln -sf "$ROOT/bin/agentdock" "$FAKE/adock"
 ln -sf "$ROOT/bin/agentdock" "$FAKE/adock-delegate"
-adock version | grep -q 'agentdock 0.1.7'
+adock version | grep -q 'agentdock 0.1.8'
 
 MISS="$TMP/missing-hermes"
 mkdir -p "$MISS/fakebin" "$MISS/project"
@@ -54,6 +83,12 @@ chmod +x "$MISS/fakebin/tmux"
 
 "$ROOT/bin/agentdock" cli add --id fakeai --command fakeai --install "true"
 "$ROOT/bin/agentdock" install fakeai --yes | grep -q 'fakeai'
+"$ROOT/bin/agentdock" cli add --id unsafe --command missingunsafe --install "rm -rf /" >/dev/null
+if "$ROOT/bin/agentdock" install unsafe --yes > "$TMP/unsafe.out" 2>&1; then
+  echo "unsupported install command should fail" >&2
+  exit 1
+fi
+grep -q 'unsupported install command pattern' "$TMP/unsafe.out"
 "$ROOT/bin/agentdock" setup --skip-cli --yes > "$TMP/setup.out"
 grep -q 'AgentDock Doctor' "$TMP/setup.out"
 grep -q 'Agent CLI:' "$TMP/setup.out"
@@ -61,12 +96,32 @@ grep -q 'OK  hermes' "$TMP/setup.out"
 ! grep -q '^OK  codex' "$TMP/setup.out"
 "$ROOT/bin/agentdock" doctor --json | grep -q '"system"'
 "$ROOT/bin/agentdock" doctor --json | grep -q '"agent_cli"'
+"$ROOT/bin/agentdock" doctor --json | json_validate
+
+mkdir -p "$TMP/collision-a/project" "$TMP/collision-b/project"
+( cd "$TMP/collision-a/project" && "$ROOT/bin/agentdock" init >/dev/null )
+( cd "$TMP/collision-b/project" && "$ROOT/bin/agentdock" init >/dev/null )
+SESSION_A="$(cd "$TMP/collision-a/project" && bash -c 'source .agentdock/config.runtime; printf "%s" "$SESSION_NAME"')"
+SESSION_B="$(cd "$TMP/collision-b/project" && bash -c 'source .agentdock/config.runtime; printf "%s" "$SESSION_NAME"')"
+[[ "$SESSION_A" != "$SESSION_B" ]]
+[[ "$SESSION_A" == project-*-agents ]]
+[[ "$SESSION_B" == project-*-agents ]]
+
+SPECIAL="$TMP/json \"quoted\" path/project"
+mkdir -p "$SPECIAL"
+( cd "$SPECIAL" && "$ROOT/bin/agentdock" init >/dev/null && "$ROOT/bin/agentdock" report --json | json_validate )
+
+! grep -R 'sed -''i' "$ROOT/bin/agentdock" "$ROOT/tests/smoke.sh"
+! grep -n '\beval\b' "$ROOT/bin/agentdock"
 
 cd "$TMP/project"
 "$ROOT/bin/agentdock" init
+SESSION="$(bash -c 'source .agentdock/config.runtime; printf "%s" "$SESSION_NAME"')"
+ROOT_HASH="$(printf '%s' "$PWD" | cksum | awk '{print $1}')"
+[[ "$SESSION" == "project-$ROOT_HASH-agents" ]]
 "$ROOT/bin/agentdock" role add legacy-codex --cli hermes >/dev/null
-sed -i 's/^AGENT_legacy_codex_CLI=.*/AGENT_legacy_codex_CLI=codex/' .agentdock/config.runtime
-sed -i 's/^AGENT_legacy_codex_CMD=.*/AGENT_legacy_codex_CMD=codex/' .agentdock/config.runtime
+replace_in_file 's/^AGENT_legacy_codex_CLI=.*/AGENT_legacy_codex_CLI=codex/' .agentdock/config.runtime
+replace_in_file 's/^AGENT_legacy_codex_CMD=.*/AGENT_legacy_codex_CMD=codex/' .agentdock/config.runtime
 "$ROOT/bin/agentdock" assign ceo-orchestrator hermes
 if "$ROOT/bin/agentdock" assign ceo-orchestrator codex 2>/dev/null; then
   echo "codex assignment should be rejected in Hermes-only runtime" >&2
@@ -87,28 +142,61 @@ test -f "$XDG_CONFIG_HOME/agentdock/roles/bmad/bmad-agent-dev.md"
 "$ROOT/bin/agentdock" start --no-attach --skip-missing
 grep -Eq '^AGENT_ceo_orchestrator_CLI="?hermes"?$' .agentdock/config.runtime
 grep -q 'Assigned CLI: hermes' .agentdock/generated/boot-legacy-codex.md
-tmux has-session -t project-agents
+tmux has-session -t "$SESSION"
 test -s .agentdock/state/panes.env
 test "$(wc -l < .agentdock/state/panes.env)" -eq 2
-tmux list-windows -t project-agents -F '#{window_name}' | grep -qx ceo-orchestrator
+tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -qx ceo-orchestrator
 grep -q PANE_legacy_codex .agentdock/state/panes.env
-tmux capture-pane -p -S -2000 -t project-agents:ceo-orchestrator.0 | grep -F "$TMP/project/.agentdock/generated/boot-ceo-orchestrator.md"
-tmux capture-pane -p -S -2000 -t project-agents:ceo-orchestrator.0 | grep -F -- "--- BEGIN AGENTDOCK BOOT ceo-orchestrator ---"
+tmux capture-pane -p -S -2000 -t "$SESSION:ceo-orchestrator.0" | grep -F "$TMP/project/.agentdock/generated/boot-ceo-orchestrator.md"
+tmux capture-pane -p -S -2000 -t "$SESSION:ceo-orchestrator.0" | grep -F -- "--- BEGIN AGENTDOCK BOOT ceo-orchestrator ---"
 "$ROOT/bin/agentdock" recruit analyst reviewer --template bmad-agent-dev --cli hermes --mission "Analyze implementation options for the active job." --instructions "Produce concise tradeoffs and hand off execution tasks."
 "$ROOT/bin/agentdock" recruit qa-check --template qa --cli hermes --mission "Verify acceptance criteria and regression risk." --instructions "Report risks and validation evidence."
 grep -q PANE_analyst .agentdock/state/panes.env
 grep -q PANE_reviewer .agentdock/state/panes.env
 grep -q PANE_qa_check .agentdock/state/panes.env
 grep -q PANE_ceo_orchestrator .agentdock/state/panes.env
-tmux capture-pane -p -S -2000 -t project-agents:reviewer.0 | grep -F -- "--- BEGIN AGENTDOCK BOOT reviewer ---"
-tmux capture-pane -p -S -2000 -t project-agents:qa-check.0 | grep -F -- "--- BEGIN AGENTDOCK BOOT qa-check ---"
+tmux capture-pane -p -S -2000 -t "$SESSION:reviewer.0" | grep -F -- "--- BEGIN AGENTDOCK BOOT reviewer ---"
+tmux capture-pane -p -S -2000 -t "$SESSION:qa-check.0" | grep -F -- "--- BEGIN AGENTDOCK BOOT qa-check ---"
+grep -q 'Fast Worker Boot: reviewer' .agentdock/generated/boot-reviewer.md
 grep -q "Analyze implementation options" .agentdock/prompts/analyst.md
 grep -q "Analyze implementation options" .agentdock/prompts/reviewer.md
 grep -q "QA / Quality Engineer" .agentdock/prompts/qa-check.md
+"$ROOT/bin/agentdock" broadcast --from ceo-orchestrator "Shared decision: use the faster team broadcast path"
+grep -q 'Shared decision: use the faster team broadcast path' .agent-work/14_SHARED_CONTEXT/BROADCASTS.md
+grep -q 'Shared decision: use the faster team broadcast path' .agent-work/12_INBOX/analyst/*.md
+"$ROOT/bin/agentdock" send all "Shared update through send all"
+grep -q 'Shared update through send all' .agent-work/14_SHARED_CONTEXT/BROADCASTS.md
+grep -q 'Shared update through send all' .agent-work/12_INBOX/reviewer/*.md
+"$ROOT/bin/agentdock" inbox > "$TMP/inbox.out"
+grep -q 'AgentDock Inbox Digest' "$TMP/inbox.out"
+"$ROOT/bin/agentdock" inbox analyst --limit 2 > "$TMP/inbox-analyst.out"
+grep -q 'Shared' "$TMP/inbox-analyst.out"
+"$ROOT/bin/agentdock" inbox analyst --mark-read > "$TMP/inbox-mark.out"
+grep -q 'Marked read for analyst' "$TMP/inbox-mark.out"
+"$ROOT/bin/agentdock" broadcast --to analyst "Targeted analyst-only broadcast"
+"$ROOT/bin/agentdock" inbox analyst --unread > "$TMP/inbox-unread.out"
+grep -q 'Targeted analyst-only broadcast' "$TMP/inbox-unread.out"
+! grep -q 'Targeted analyst-only broadcast' .agent-work/12_INBOX/reviewer/*.md
+AGENTDOCK_BROADCAST_MAX_BYTES=1 "$ROOT/bin/agentdock" broadcast --to analyst "Rotate broadcast log"
+find .agent-work/11_ARCHIVE -maxdepth 1 -type f -name 'BROADCASTS-*.md' | grep -q BROADCASTS
+"$ROOT/bin/agentdock" broadcast "@reviewer mention-routed broadcast"
+grep -q 'mention-routed broadcast' .agent-work/12_INBOX/reviewer/*.md
+! grep -q 'mention-routed broadcast' .agent-work/12_INBOX/analyst/*.md
+"$ROOT/bin/agentdock" broadcast "@qa alias-routed broadcast"
+grep -q 'alias-routed broadcast' .agent-work/12_INBOX/qa-check/*.md
+"$ROOT/bin/agentdock" report --fast > "$TMP/report-fast.out"
+grep -q 'AgentDock Fast Report' "$TMP/report-fast.out"
+"$ROOT/bin/agentdock" watch reviewer --once --limit 2 > "$TMP/watch-reviewer.out"
+grep -q 'mention-routed broadcast' "$TMP/watch-reviewer.out"
+"$ROOT/bin/agentdock" inbox reviewer --unread > "$TMP/reviewer-unread-after-watch.out"
+! grep -q 'mention-routed broadcast' "$TMP/reviewer-unread-after-watch.out"
 "$ROOT/bin/agentdock" task "Smoke test job"
+grep -q 'Job task kickoff:' .agent-work/14_SHARED_CONTEXT/BROADCASTS.md
 test -f .agent-work/07_JOBS/CURRENT.md
 JOB_README="$(sed -n 's/^Active job: //p' .agent-work/07_JOBS/CURRENT.md)"
 JOB_DIR="$(dirname "$JOB_README")"
+test -f "$JOB_DIR/SELECTED_ROLES"
+grep -q '^qa-check$' "$JOB_DIR/SELECTED_ROLES"
 test -f "$JOB_DIR/TEAM.md"
 test -f "$JOB_DIR/LIFECYCLE.md"
 test -f "$JOB_DIR/TASKS/README.md"
@@ -122,7 +210,11 @@ grep -q 'task cards dispatched' "$JOB_DIR/LIFECYCLE.md"
 grep -q "$JOB_DIR/TASKS/analyst.md" .agent-work/12_INBOX/analyst/*.md
 grep -q "$JOB_DIR/TASKS/reviewer.md" .agent-work/12_INBOX/reviewer/*.md
 grep -q "$JOB_DIR/TASKS/qa-check.md" .agent-work/12_INBOX/qa-check/*.md
+BEFORE_QA="$(find .agent-work/12_INBOX/qa-check -maxdepth 1 -type f -name '*.md' | wc -l | tr -d ' ')"
 adock-delegate --from ceo-orchestrator --request "CEO-pane delegated job"
+grep -q 'Job kickoff:' .agent-work/14_SHARED_CONTEXT/BROADCASTS.md
+AFTER_QA="$(find .agent-work/12_INBOX/qa-check -maxdepth 1 -type f -name '*.md' | wc -l | tr -d ' ')"
+test "$AFTER_QA" -eq "$BEFORE_QA"
 test -f .agent-work/07_JOBS/CURRENT.md
 JOB_README="$(sed -n 's/^Active job: //p' .agent-work/07_JOBS/CURRENT.md)"
 JOB_DIR="$(dirname "$JOB_README")"
@@ -147,17 +239,27 @@ if "$ROOT/bin/agentdock" job finish --summary "Should not finish" > "$TMP/premat
 fi
 grep -q 'selected role task card(s) have no job report: reviewer' "$TMP/premature-finish.out"
 "$ROOT/bin/agentdock" job report --from analyst --summary "Analyst completed the assigned investigation"
+grep -q 'Role report submitted by analyst' .agent-work/14_SHARED_CONTEXT/BROADCASTS.md
+AFTER_REPORT_QA="$(find .agent-work/12_INBOX/qa-check -maxdepth 1 -type f -name '*.md' | wc -l | tr -d ' ')"
+test "$AFTER_REPORT_QA" -eq "$BEFORE_QA"
+LONG_SUMMARY="$(printf 'x%.0s' {1..1200})"
+"$ROOT/bin/agentdock" job report --from analyst --summary "$LONG_SUMMARY"
+grep -q 'truncated' .agent-work/14_SHARED_CONTEXT/BROADCASTS.md
+"$ROOT/bin/agentdock" job report --from analyst --summary "Analyst completed a second same-role report without overwriting the first"
 "$ROOT/bin/agentdock" job report --from reviewer --summary "Reviewer completed the assigned review"
+test "$(find "$JOB_DIR/REPORTS" -maxdepth 1 -type f -name '*-analyst.md' | wc -l | tr -d ' ')" -eq 3
+grep -q 'Analyst completed the assigned investigation' "$JOB_DIR"/REPORTS/*-analyst.md
+grep -q 'Analyst completed a second same-role report' "$JOB_DIR"/REPORTS/*-analyst.md
 ROLE_REPORT="$(find "$JOB_DIR/REPORTS" -maxdepth 1 -type f -name '*-analyst.md' | sort | tail -1)"
 test -f "$ROLE_REPORT"
-basename "$ROLE_REPORT" | grep -Eq '^[0-9]{8}:[0-9]{2}:[0-9]{2}-analyst\.md$'
-grep -q 'Analyst completed the assigned investigation' "$ROLE_REPORT"
+basename "$ROLE_REPORT" | grep -Eq '^[0-9]{8}:[0-9]{2}:[0-9]{2}\.[0-9]+-analyst\.md$'
+grep -q 'Analyst completed a second same-role report' "$ROLE_REPORT"
 grep -q "$ROLE_REPORT" .agent-work/12_INBOX/ceo-orchestrator/*.md
 test -f ".agent-work/10_REPORTS/analyst/$(basename "$ROLE_REPORT")"
 "$ROOT/bin/agentdock" job finish --summary "Delegate job complete"
 FINAL_REPORT="$(find "$JOB_DIR/REPORTS" -maxdepth 1 -type f -name '*-final.md' | sort | tail -1)"
 test -f "$FINAL_REPORT"
-basename "$FINAL_REPORT" | grep -Eq '^[0-9]{8}:[0-9]{2}:[0-9]{2}-final\.md$'
+basename "$FINAL_REPORT" | grep -Eq '^[0-9]{8}:[0-9]{2}:[0-9]{2}\.[0-9]+-final\.md$'
 grep -q 'Delegate job complete' "$FINAL_REPORT"
 grep -q 'Analyst completed the assigned investigation' "$FINAL_REPORT"
 grep -q 'Reviewer completed the assigned review' "$FINAL_REPORT"
@@ -175,11 +277,13 @@ grep -q PANE_legacy_codex .agentdock/state/panes.env
 "$ROOT/bin/agentdock" report > "$TMP/report.out"
 grep -q 'AgentDock Report' "$TMP/report.out"
 grep -q 'Current team plan' "$TMP/report.out"
+"$ROOT/bin/agentdock" report --json | json_validate
+"$ROOT/bin/agentdock" cli list --json | json_validate
 "$ROOT/bin/agentdock" stop --yes
-! tmux has-session -t project-agents 2>/dev/null
+! tmux has-session -t "$SESSION" 2>/dev/null
 grep -Eq '^AGENT_legacy_codex_CLI="?hermes"?$' .agentdock/config.runtime
 "$ROOT/bin/agentdock" job --no-attach "CEO-led smoke job"
-tmux has-session -t project-agents
+tmux has-session -t "$SESSION"
 grep -q 'Do not stop at READY' .agent-work/12_INBOX/ceo-orchestrator/*.md
 grep -q 'start execution now' .agent-work/12_INBOX/ceo-orchestrator/*.md
 JOB_README="$(sed -n 's/^Active job: //p' .agent-work/07_JOBS/CURRENT.md)"
