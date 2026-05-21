@@ -50,6 +50,15 @@ json_string() {
   printf '"%s"' "$(json_escape "${1:-}")"
 }
 
+html_escape() {
+  local value="${1:-}"
+  value="${value//&/&amp;}"
+  value="${value//</&lt;}"
+  value="${value//>/&gt;}"
+  value="${value//\"/&quot;}"
+  printf '%s' "$value"
+}
+
 content_hash() {
   cksum | awk '{print $1}'
 }
@@ -199,7 +208,10 @@ Commands:
   broadcast "..."         Send one shared message to every configured role
   inbox [role]            Show recent inbox and broadcast messages
   watch <role>            Poll a role inbox for unread messages
+  workspace snapshot --json|export --out <file>  Render read-only visual workspace state
   report                  Summarize project state
+  workspace snapshot --json       Print read-only Visual Office state JSON
+  workspace export --out <file>   Write a static Visual Office HTML file
   update                  Print update guidance
   uninstall               Print uninstall guidance
 EOF
@@ -2620,6 +2632,316 @@ Shared log: $shared"
   fi
 }
 
+
+workspace_role_department() {
+  local role="$1"
+  case "$role" in
+    *orchestrator*|ceo) printf 'Executive' ;;
+    *architect*|*system*|*developer*|*engineer*|*dev*) printf 'Engineering' ;;
+    *product*|*pm*|*ux*|*designer*|*ui*) printf 'Product' ;;
+    *qa*|*test*|*review*) printf 'Quality' ;;
+    *delivery*|*planner*|*writer*|*docs*) printf 'Delivery' ;;
+    *finance*|*cfo*|*cost*) printf 'Finance' ;;
+    *ops*|*infra*) printf 'Operations' ;;
+    *) printf 'General' ;;
+  esac
+}
+
+workspace_role_tier() {
+  local role="$1"
+  case "$role" in
+    *orchestrator*|ceo) printf 'CEO' ;;
+    *architect*|*system*) printf 'Executive/Architect' ;;
+    *product*|*pm*) printf 'Product Lead' ;;
+    *ux*|*designer*|*ui*) printf 'Design Specialist' ;;
+    *developer*|*engineer*|*dev*) printf 'Implementation Specialist' ;;
+    *qa*|*test*|*review*) printf 'Quality Specialist' ;;
+    *delivery*|*planner*) printf 'Delivery Lead' ;;
+    *) printf 'Team Member' ;;
+  esac
+}
+
+workspace_role_avatar() {
+  local role="$1"
+  case "$role" in
+    *orchestrator*|ceo) printf 'CEO Chick' ;;
+    *architect*|*system*) printf 'Architect Owl' ;;
+    *developer*|*engineer*|*dev*) printf 'Developer Cat' ;;
+    *product*|*pm*) printf 'Product Rabbit' ;;
+    *ux*|*designer*|*ui*) printf 'UX Fox' ;;
+    *qa*|*test*|*review*) printf 'QA Turtle' ;;
+    *delivery*|*planner*) printf 'Delivery Dog' ;;
+    *writer*|*docs*) printf 'Writer Bird' ;;
+    *finance*|*cfo*|*cost*) printf 'Finance Hamster' ;;
+    *ops*|*infra*) printf 'Ops Penguin' ;;
+    *) printf 'Agent Pet' ;;
+  esac
+}
+
+workspace_manager_chain() {
+  local role="$1" department
+  department="$(workspace_role_department "$role")"
+  case "$role" in
+    *orchestrator*|ceo) printf 'CEO/%s' "$role" ;;
+    *architect*|*system*|*developer*|*engineer*|*dev*) printf 'CEO/CTO/%s/%s' "$department" "$role" ;;
+    *product*|*pm*|*ux*|*designer*|*ui*) printf 'CEO/CPO/%s/%s' "$department" "$role" ;;
+    *qa*|*test*|*review*) printf 'CEO/Quality Executive/%s/%s' "$department" "$role" ;;
+    *delivery*|*planner*|*writer*|*docs*) printf 'CEO/COO/%s/%s' "$department" "$role" ;;
+    *finance*|*cfo*|*cost*) printf 'CEO/CFO/%s/%s' "$department" "$role" ;;
+    *) printf 'CEO/General/%s' "$role" ;;
+  esac
+}
+
+workspace_selected_roles_no_write() {
+  local job_dir="$1" task id seen=""
+  [[ -d "$job_dir/TASKS" ]] || return 0
+  while IFS= read -r task; do
+    id="$(basename "$task" .md)"
+    [[ "$id" == "README" ]] && continue
+    case " $seen " in *" $id "*) continue ;; esac
+    seen="$seen $id"
+    printf '%s\n' "$id"
+  done < <(find "$job_dir/TASKS" -maxdepth 1 -type f -name '*.md' 2>/dev/null | sort)
+}
+
+workspace_latest_report_for_role() {
+  local job_dir="$1" role="$2" report base report_role latest=""
+  while IFS= read -r report; do
+    base="$(basename "$report" .md)"
+    report_role="${base#*-}"
+    [[ "$report_role" == "$role" ]] || continue
+    latest="$report"
+  done < <(find "$job_dir/REPORTS" -maxdepth 1 -type f -name '*.md' ! -name '*-final.md' 2>/dev/null | sort)
+  printf '%s' "$latest"
+}
+
+workspace_json_array_from_words() {
+  local first=1 item
+  printf '['
+  for item in "$@"; do
+    [[ -n "$item" ]] || continue
+    [[ "$first" == 1 ]] || printf ','
+    json_string "$item"
+    first=0
+  done
+  printf ']'
+}
+
+workspace_snapshot_json() {
+  local root="$1" current="" job_dir="" job_id="" lifecycle="" coordinator selected_roles="" role
+  source_runtime "$root"
+  coordinator="$(orchestrator_role "$root")"
+  job_dir="$(current_job_dir "$root" || true)"
+  if [[ -n "$job_dir" ]]; then
+    job_id="$(basename "$job_dir")"
+    lifecycle="$(grep '^Status:' "$job_dir/LIFECYCLE.md" 2>/dev/null | head -1 | sed 's/^Status:[[:space:]]*//' || true)"
+    selected_roles="$(workspace_selected_roles_no_write "$job_dir")"
+  fi
+  local required=0 submitted=0 missing_roles=() latest_map_entries=() id latest_report
+  if [[ -n "$job_dir" ]]; then
+    while IFS= read -r id; do
+      [[ -n "$id" ]] || continue
+      [[ "$id" == "$coordinator" ]] && continue
+      required=$((required + 1))
+      latest_report="$(workspace_latest_report_for_role "$job_dir" "$id")"
+      if [[ -n "$latest_report" ]]; then
+        submitted=$((submitted + 1))
+        latest_map_entries+=("$id=$latest_report")
+      else
+        missing_roles+=("$id")
+      fi
+    done <<< "$selected_roles"
+  fi
+  local final_ready=false final_reason="no active job"
+  if [[ -n "$job_dir" ]]; then
+    if (( ${#missing_roles[@]} == 0 )); then
+      final_ready=true
+      final_reason="all selected role reports submitted"
+    else
+      final_ready=false
+      final_reason="selected role reports missing: ${missing_roles[*]}"
+    fi
+  fi
+
+  printf '{'
+  printf '"schema_version":%s,' "$(json_string 'workspace-state.v1')"
+  printf '"generated_at":%s,' "$(json_string "$(date -u +%Y-%m-%dT%H:%M:%SZ)")"
+  printf '"project":{"name":%s,"root":%s,"session_name":%s},' "$(json_string "${PROJECT_NAME:-}")" "$(json_string "$root")" "$(json_string "${SESSION_NAME:-}")"
+  printf '"job":{"id":%s,"path":%s,"readme_path":%s,"lifecycle":%s,"final_ready":%s,"final_ready_reason":%s},' \
+    "$(json_string "$job_id")" "$(json_string "$job_dir")" "$(json_string "${job_dir:+$job_dir/README.md}")" "$(json_string "$lifecycle")" "$final_ready" "$(json_string "$final_reason")"
+  printf '"reports":{"required":%s,"submitted":%s,"missing_roles":' "$required" "$submitted"
+  workspace_json_array_from_words "${missing_roles[@]}"
+  printf ',"latest_report_path_by_role":{'
+  local first=1 entry k v
+  for entry in "${latest_map_entries[@]}"; do
+    k="${entry%%=*}"; v="${entry#*=}"
+    [[ "$first" == 1 ]] || printf ','
+    printf '%s:%s' "$(json_string "$k")" "$(json_string "$v")"
+    first=0
+  done
+  printf '}},'
+  printf '"org":{"root":%s,"nodes":[' "$(json_string "$coordinator")"
+  printf '{"id":"CEO","logical_node":true},{"id":"CTO","logical_node":true},{"id":"CPO","logical_node":true},{"id":"COO","logical_node":true},{"id":"Quality Executive","logical_node":true},{"id":"CFO","logical_node":true}'
+  printf ']},'
+  printf '"roles":['
+  first=1
+  for role in $AGENT_IDS; do
+    local var display pane configured=true selected=false running=false task_path="" status status_reason department tier avatar chain latest_inbox source_paths=()
+    var="AGENT_${role//-/_}"
+    display="$(get_config_var "${var}_DISPLAY_NAME")"; [[ -n "$display" ]] || display="$role"
+    pane="$(cd "$root" && tmux_target_for_role "$role" || true)"
+    [[ -n "$pane" ]] && running=true
+    if [[ -n "$job_dir" && -f "$job_dir/TASKS/$role.md" ]]; then selected=true; task_path="$job_dir/TASKS/$role.md"; source_paths+=("$task_path"); fi
+    latest_report=""; [[ -n "$job_dir" ]] && latest_report="$(workspace_latest_report_for_role "$job_dir" "$role")"
+    [[ -n "$latest_report" ]] && source_paths+=("$latest_report")
+    latest_inbox="$(find "$root/.agent-work/12_INBOX/$role" -maxdepth 1 -type f -name '*.md' 2>/dev/null | sort | tail -1)"
+    [[ -n "$latest_inbox" ]] && source_paths+=("$latest_inbox")
+    department="$(workspace_role_department "$role")"; tier="$(workspace_role_tier "$role")"; avatar="$(workspace_role_avatar "$role")"; chain="$(workspace_manager_chain "$role")"
+    if [[ "$running" != true ]]; then status="offline"; status_reason="configured role has no live pane in panes.env"
+    elif [[ -n "$latest_report" ]]; then status="reported"; status_reason="latest report exists: $latest_report"
+    elif [[ "$selected" == true && -n "$task_path" && "$lifecycle" == "executing" ]]; then status="working"; status_reason="task card exists; lifecycle executing; report not submitted yet"
+    elif [[ "$selected" == true && -n "$task_path" ]]; then status="assigned"; status_reason="task card exists; report not submitted yet"
+    else status="idle"; status_reason="configured role is not selected for the active job"; fi
+    [[ "$first" == 1 ]] || printf ','; first=0
+    printf '{'
+    printf '"role_id":%s,"display_name":%s,"configured":%s,"selected":%s,"running_pane":%s,"pane_id":%s,' "$(json_string "$role")" "$(json_string "$display")" "$configured" "$selected" "$running" "$(json_string "$pane")"
+    printf '"department":%s,"tier":%s,"logical_node":false,"manager_chain":' "$(json_string "$department")" "$(json_string "$tier")"
+    IFS='/' read -r -a chain_parts <<< "$chain"; workspace_json_array_from_words "${chain_parts[@]}"
+    printf ',"status":%s,"status_reason":%s,"source_paths":' "$(json_string "$status")" "$(json_string "$status_reason")"
+    workspace_json_array_from_words "${source_paths[@]}"
+    printf ',"task_path":%s,"latest_inbox_path":%s,"latest_report_path":%s,' "$(json_string "$task_path")" "$(json_string "$latest_inbox")" "$(json_string "$latest_report")"
+    printf '"avatar":{"character_id":%s,"archetype":%s,"palette":%s,"accessory":%s,"overlay":%s}' "$(json_string "${avatar,,}-${role}")" "$(json_string "$avatar")" "$(json_string "${department,,}")" "$(json_string "$tier")" "$(json_string "$status")"
+    printf '}'
+  done
+  printf '],'
+  printf '"events":['
+  first=1
+  if [[ -f "$root/.agent-work/14_SHARED_CONTEXT/BROADCASTS.md" ]]; then
+    while IFS= read -r ev; do
+      [[ -n "$ev" ]] || continue
+      [[ "$first" == 1 ]] || printf ','; first=0
+      printf '{"type":"broadcast","summary":%s,"source_path":%s}' "$(json_string "$ev")" "$(json_string "$root/.agent-work/14_SHARED_CONTEXT/BROADCASTS.md")"
+    done < <(grep '^## Broadcast ' "$root/.agent-work/14_SHARED_CONTEXT/BROADCASTS.md" 2>/dev/null | tail -10)
+  fi
+  printf '],'
+  printf '"locks":['
+  first=1
+  if [[ -f "$root/.agent-work/LOCKS.md" ]]; then
+    while IFS= read -r lock; do
+      [[ "$lock" == -* ]] || continue
+      [[ "$first" == 1 ]] || printf ','; first=0
+      json_string "$lock"
+    done < "$root/.agent-work/LOCKS.md"
+  fi
+  printf '],'
+  printf '"warnings":['
+  first=1
+  if [[ -z "$job_dir" ]]; then json_string "no active job"; first=0; fi
+  if (( ${#missing_roles[@]} > 0 )); then [[ "$first" == 1 ]] || printf ','; json_string "$final_reason"; fi
+  printf ']}'
+  printf '\n'
+}
+
+workspace_export_html() {
+  local root="$1" out="$2" tmp state
+  [[ -n "$out" ]] || die "usage: agentdock workspace export --out <file>"
+  mkdir -p "$(dirname "$out")"
+  tmp="$(mktemp "${TMPDIR:-/tmp}/agentdock-workspace.XXXXXX.json")"
+  workspace_snapshot_json "$root" > "$tmp"
+  state="$(cat "$tmp")"
+  rm -f "$tmp"
+  cat > "$out" <<'EOF_HEAD'
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentDock Visual Office</title>
+<style>
+body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0b1020;color:#e7ecff} .top{padding:18px 22px;background:#111936;border-bottom:1px solid #29365f}.badge{display:inline-block;margin:4px 6px 4px 0;padding:4px 8px;border:1px solid #52649a;border-radius:999px}.grid{display:grid;grid-template-columns:2fr 1fr;gap:16px;padding:16px}.map{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.zone,.panel{background:#141d3a;border:1px solid #2b3a68;border-radius:14px;padding:14px}.role{margin:8px 0;padding:10px;border:1px solid #41517f;border-radius:10px;background:#192447}.status-reported{border-color:#2fd17c}.status-working{border-color:#5ea1ff}.status-offline{opacity:.68}.feed{max-height:260px;overflow:auto} code{color:#b7c7ff} button{background:#22315c;color:#fff;border:1px solid #536899;border-radius:8px;padding:6px 8px}@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>AgentDock Visual Office</h1>
+  <span class="badge">Read-only observer</span>
+  <span class="badge">Final readiness</span>
+  <span class="badge">Reports</span>
+</header>
+<main class="grid">
+  <section>
+    <h2>2D Office Map</h2>
+    <div class="map">
+      <div class="zone"><h3>CEO Office</h3><div id="zone-executive"></div></div>
+      <div class="zone"><h3>Executive Strategy Ring</h3><p>Logical CEO → CTO/CPO/COO/Quality/CFO routing nodes.</p></div>
+      <div class="zone"><h3>Product Bay</h3><div id="zone-product"></div></div>
+      <div class="zone"><h3>Engineering Bay</h3><div id="zone-engineering"></div></div>
+      <div class="zone"><h3>Quality Bay</h3><div id="zone-quality"></div></div>
+      <div class="zone"><h3>Delivery Bay</h3><div id="zone-delivery"></div></div>
+      <div class="zone"><h3>Blocker Desk</h3><div id="zone-blockers"></div></div>
+      <div class="zone"><h3>Report Desk</h3><div id="zone-reports"></div></div>
+    </div>
+  </section>
+  <aside class="panel">
+    <h2>Inspector</h2>
+    <p><strong>Status reason</strong> and source evidence are shown per role.</p>
+    <div id="inspector"></div>
+    <h2>Activity Feed</h2>
+    <div id="feed" class="feed"></div>
+  </aside>
+</main>
+<script type="application/json" id="workspace-state">
+EOF_HEAD
+  printf '%s' "$state" >> "$out"
+  cat >> "$out" <<'EOF_TAIL'
+</script>
+<script>
+const state = JSON.parse(document.getElementById('workspace-state').textContent);
+const esc = (s) => String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const zoneId = (dept) => ({Executive:'zone-executive',Product:'zone-product',Engineering:'zone-engineering',Quality:'zone-quality',Delivery:'zone-delivery'}[dept] || 'zone-executive');
+function roleHtml(r){return `<button class="role status-${esc(r.status)}" onclick="showRole('${esc(r.role_id)}')">${esc(r.avatar?.archetype)} — <strong>${esc(r.role_id)}</strong><br><small>${esc(r.status)} · ${esc(r.department)}</small></button>`}
+for (const r of state.roles || []) {
+  const el = document.getElementById(zoneId(r.department)); if (el) el.insertAdjacentHTML('beforeend', roleHtml(r));
+  if (r.status === 'blocked' || /missing|failed|blocked/i.test(r.status_reason || '')) document.getElementById('zone-blockers').insertAdjacentHTML('beforeend', roleHtml(r));
+  if (r.latest_report_path) document.getElementById('zone-reports').insertAdjacentHTML('beforeend', roleHtml(r));
+}
+window.showRole = (id) => { const r=(state.roles||[]).find(x=>x.role_id===id); if(!r)return; document.getElementById('inspector').innerHTML = `<h3>${esc(r.role_id)}</h3><p><b>Status:</b> ${esc(r.status)}</p><p><b>Status reason:</b> ${esc(r.status_reason)}</p><p><b>Manager chain:</b> ${esc((r.manager_chain||[]).join(' / '))}</p><p><b>Task:</b> <code>${esc(r.task_path)}</code></p><p><b>Report:</b> <code>${esc(r.latest_report_path)}</code></p><p><b>Sources:</b></p><ul>${(r.source_paths||[]).map(p=>`<li><code>${esc(p)}</code></li>`).join('')}</ul>`; };
+if ((state.roles||[])[0]) showRole(state.roles[0].role_id);
+document.getElementById('feed').innerHTML = (state.events||[]).map(e=>`<p>${esc(e.summary)}<br><code>${esc(e.source_path)}</code></p>`).join('') || '<p>No recent events.</p>';
+</script>
+<noscript><section class="panel"><h2>Roles fallback</h2><p>AgentDock Visual Office role list is embedded in the JSON script tag above. Status reason fields remain available without executing commands.</p></section></noscript>
+</body>
+</html>
+EOF_TAIL
+  say "Workspace export written: $out"
+}
+
+cmd_workspace() {
+  local root sub="${1:-}" out=""
+  root="$(require_project "$@")"
+  case "$sub" in
+    snapshot)
+      shift || true
+      [[ "${1:-}" == "--json" ]] || die "usage: agentdock workspace snapshot --json"
+      workspace_snapshot_json "$root"
+      ;;
+    export)
+      shift || true
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --out) out="${2:-}"; shift 2 ;;
+          --out=*) out="${1#--out=}"; shift ;;
+          --project) shift 2 ;;
+          --project=*) shift ;;
+          *) shift ;;
+        esac
+      done
+      workspace_export_html "$root" "$out"
+      ;;
+    *) die "usage: agentdock workspace snapshot --json | workspace export --out <file>" ;;
+  esac
+}
+
 cmd_report() {
   local root json=0 fast=0
   root="$(require_project "$@")"
@@ -2760,6 +3082,345 @@ cmd_watch() {
   done
 }
 
+workspace_html_escape() {
+  local value="${1:-}"
+  value="${value//&/&amp;}"
+  value="${value//</&lt;}"
+  value="${value//>/&gt;}"
+  value="${value//\"/&quot;}"
+  value="${value//\'/&#39;}"
+  printf '%s' "$value"
+}
+
+workspace_role_department() {
+  local role="$1"
+  case "$role" in
+    *orchestrator*|ceo) printf 'Executive' ;;
+    *product*|*pm*) printf 'Product Bay' ;;
+    *ux*|*design*) printf 'Product Bay' ;;
+    *architect*|*developer*|*engineer*|*dev*|*coder*) printf 'Engineering Bay' ;;
+    *qa*|*review*|*test*) printf 'Quality Bay' ;;
+    *delivery*|*planner*|*writer*|*doc*|*ops*) printf 'Delivery Bay' ;;
+    *) printf 'General Bay' ;;
+  esac
+}
+
+workspace_role_tier() {
+  local role="$1"
+  case "$role" in
+    *orchestrator*|ceo) printf 'ceo' ;;
+    *architect*|*product-manager*|*delivery-planner*|*qa*) printf 'lead' ;;
+    *) printf 'worker' ;;
+  esac
+}
+
+workspace_role_logical_node() {
+  local role="$1"
+  case "$role" in
+    *orchestrator*|ceo) printf 'CEO Office' ;;
+    *product*|*pm*) printf 'Product Lead Desk' ;;
+    *ux*|*design*) printf 'UX Studio' ;;
+    *architect*) printf 'CTO Architecture Desk' ;;
+    *developer*|*engineer*|*dev*|*coder*) printf 'Engineering Workbench' ;;
+    *qa*|*review*|*test*) printf 'Quality Review Desk' ;;
+    *delivery*|*planner*) printf 'Delivery Planning Desk' ;;
+    *writer*|*doc*) printf 'Documentation Desk' ;;
+    *) printf 'General Work Desk' ;;
+  esac
+}
+
+workspace_role_avatar() {
+  local role="$1"
+  case "$role" in
+    *orchestrator*|ceo) printf 'captain' ;;
+    *product*|*pm*) printf 'clipboard-pet' ;;
+    *ux*|*design*) printf 'palette-pet' ;;
+    *architect*) printf 'blueprint-pet' ;;
+    *developer*|*engineer*|*dev*|*coder*) printf 'keyboard-pet' ;;
+    *qa*|*review*|*test*) printf 'magnifier-pet' ;;
+    *delivery*|*planner*) printf 'calendar-pet' ;;
+    *) printf 'helper-pet' ;;
+  esac
+}
+
+workspace_task_roles() {
+  local job_dir="$1" task id seen=""
+  [[ -d "$job_dir/TASKS" ]] || return 0
+  while IFS= read -r task; do
+    id="$(basename "$task" .md)"
+    [[ "$id" == "README" ]] && continue
+    case " $seen " in *" $id "*) continue ;; esac
+    seen="$seen $id"
+    printf '%s\n' "$id"
+  done < <(find "$job_dir/TASKS" -maxdepth 1 -type f -name '*.md' 2>/dev/null | sort)
+}
+
+workspace_latest_report_for_role() {
+  local job_dir="$1" role="$2" report base report_role latest=""
+  [[ -d "$job_dir/REPORTS" ]] || return 0
+  while IFS= read -r report; do
+    base="$(basename "$report" .md)"
+    report_role="${base#*-}"
+    [[ "$report_role" == "$role" ]] || continue
+    latest="$report"
+  done < <(find "$job_dir/REPORTS" -maxdepth 1 -type f -name '*.md' ! -name '*-final.md' 2>/dev/null | sort)
+  printf '%s' "$latest"
+}
+
+workspace_report_count_for_role() {
+  local job_dir="$1" role="$2" report base report_role count=0
+  [[ -d "$job_dir/REPORTS" ]] || { printf '0'; return; }
+  while IFS= read -r report; do
+    base="$(basename "$report" .md)"
+    report_role="${base#*-}"
+    [[ "$report_role" == "$role" ]] || continue
+    count=$((count + 1))
+  done < <(find "$job_dir/REPORTS" -maxdepth 1 -type f -name '*.md' ! -name '*-final.md' 2>/dev/null | sort)
+  printf '%s' "$count"
+}
+
+workspace_role_selected() {
+  local role="$1" selected="$2"
+  case " $selected " in *" $role "*) return 0 ;; esac
+  return 1
+}
+
+workspace_role_configured() {
+  local role="$1" configured="$2"
+  case " $configured " in *" $role "*) return 0 ;; esac
+  return 1
+}
+
+workspace_role_status() {
+  local selected="$1" pane_id="$2" task_path="$3" report_path="$4"
+  if [[ "$selected" == true && -n "$report_path" ]]; then
+    printf 'reported'
+  elif [[ "$selected" == true && -n "$task_path" && -n "$pane_id" ]]; then
+    printf 'working'
+  elif [[ "$selected" == true && -n "$task_path" ]]; then
+    printf 'assigned'
+  elif [[ -n "$pane_id" ]]; then
+    printf 'online'
+  else
+    printf 'configured'
+  fi
+}
+
+workspace_role_status_reason() {
+  local selected="$1" pane_id="$2" task_path="$3" report_path="$4"
+  if [[ "$selected" == true && -n "$report_path" ]]; then
+    printf 'Selected role has submitted at least one job report.'
+  elif [[ "$selected" == true && -n "$task_path" && -n "$pane_id" ]]; then
+    printf 'Selected role has a task card and an active pane mapping, but no report yet.'
+  elif [[ "$selected" == true && -n "$task_path" ]]; then
+    printf 'Selected role has a task card, but no active pane mapping or report yet.'
+  elif [[ -n "$pane_id" ]]; then
+    printf 'Role is configured and has an active pane mapping.'
+  else
+    printf 'Role is configured or discovered from job files; no active pane mapping.'
+  fi
+}
+
+workspace_collect_roles() {
+  local root="$1" job_dir="$2" configured="$3" role seen=""
+  for role in $configured; do
+    case " $seen " in *" $role "*) continue ;; esac
+    seen="$seen $role"
+    printf '%s\n' "$role"
+  done
+  if [[ -n "$job_dir" ]]; then
+    while IFS= read -r role; do
+      [[ -n "$role" ]] || continue
+      case " $seen " in *" $role "*) continue ;; esac
+      seen="$seen $role"
+      printf '%s\n' "$role"
+    done < <(workspace_task_roles "$job_dir")
+  fi
+}
+
+workspace_snapshot_json() {
+  local root="$1"
+  source_runtime "$root"
+  local generated_at project_name session_name job_dir job_readme job_id lifecycle_status lifecycle_path team_path configured selected coordinator final_ready=true final_reason missing_roles="" report_total=0 selected_count=0 submitted_count=0 role
+  generated_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  project_name="${PROJECT_NAME:-$(basename "$root")}"; session_name="${SESSION_NAME:-}"
+  configured="${AGENT_IDS:-}"
+  job_dir="$(current_job_dir "$root" 2>/dev/null || true)"
+  job_readme=""; job_id=""; lifecycle_status="none"; lifecycle_path=""; team_path=""; selected=""; coordinator="$(orchestrator_role "$root")"
+  if [[ -n "$job_dir" ]]; then
+    job_readme="$job_dir/README.md"
+    job_id="$(basename "$job_dir")"
+    lifecycle_path="$job_dir/LIFECYCLE.md"
+    team_path="$job_dir/TEAM.md"
+    lifecycle_status="$(sed -n 's/^Status: //p' "$lifecycle_path" 2>/dev/null | head -1)"
+    [[ -n "$lifecycle_status" ]] || lifecycle_status="unknown"
+    selected="$(workspace_task_roles "$job_dir" | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+    selected_count="$(printf '%s\n' $selected | sed '/^$/d' | wc -l | tr -d ' ')"
+    while IFS= read -r role; do
+      [[ -n "$role" ]] || continue
+      [[ "$role" == "$coordinator" ]] && continue
+      if role_has_job_report "$job_dir" "$role"; then
+        submitted_count=$((submitted_count + 1))
+      else
+        final_ready=false
+        missing_roles="${missing_roles:+$missing_roles }$role"
+      fi
+    done < <(workspace_task_roles "$job_dir")
+    if [[ "$final_ready" == true ]]; then
+      final_reason="All selected worker task roles have submitted reports."
+    else
+      final_reason="Missing job report(s) for selected worker role(s): $missing_roles"
+    fi
+    report_total="$(find "$job_dir/REPORTS" -maxdepth 1 -type f -name '*.md' ! -name '*-final.md' 2>/dev/null | wc -l | tr -d ' ')"
+  else
+    final_ready=false
+    final_reason="No active job found."
+  fi
+
+  printf '{\n'
+  printf '  "schema_version": "workspace.snapshot.v1",\n'
+  printf '  "generated_at": '; json_string "$generated_at"; printf ',\n'
+  printf '  "project": {"name": '; json_string "$project_name"; printf ', "root": '; json_string "$root"; printf ', "session": '; json_string "$session_name"; printf ', "session_name": '; json_string "$session_name"; printf '},\n'
+  printf '  "job": {"id": '; json_string "$job_id"; printf ', "path": '; json_string "$job_dir"; printf ', "readme_path": '; json_string "$job_readme"; printf ', "lifecycle": '; json_string "$lifecycle_status"; printf ', "lifecycle_status": '; json_string "$lifecycle_status"; printf ', "final_ready": %s, "final_ready_reason": ' "$final_ready"; json_string "$final_reason"; printf '},\n'
+  printf '  "reports": {"total": %s, "submitted": %s, "required": %s, "submitted_selected_roles": %s, "required_selected_roles": %s, "missing_roles": [' "$report_total" "$submitted_count" "$selected_count" "$submitted_count" "$selected_count"
+  local first=1
+  for role in $missing_roles; do
+    [[ "$first" == 1 ]] || printf ', '
+    first=0
+    json_string "$role"
+  done
+  printf ']},\n'
+  printf '  "org": {"model": "CEO -> department bay -> role", "zones": ['
+  local zones=("CEO Office" "Product Bay" "Engineering Bay" "Quality Bay" "Delivery Bay" "Blocker Desk" "Report Desk")
+  first=1
+  local zone
+  for zone in "${zones[@]}"; do
+    [[ "$first" == 1 ]] || printf ', '
+    first=0
+    json_string "$zone"
+  done
+  printf ']},\n'
+  printf '  "roles": [\n'
+  first=1
+  local pane_id running_pane configured_bool selected_bool task_path latest_report department tier logical_node manager_chain status status_reason avatar source_first report_count
+  while IFS= read -r role; do
+    [[ -n "$role" ]] || continue
+    [[ "$first" == 1 ]] || printf ',\n'
+    first=0
+    configured_bool=false; selected_bool=false
+    workspace_role_configured "$role" "$configured" && configured_bool=true
+    workspace_role_selected "$role" "$selected" && selected_bool=true
+    pane_id="$(cd "$root" && tmux_target_for_role "$role" || true)"
+    [[ -n "$pane_id" ]] && running_pane=true || running_pane=false
+    task_path=""; [[ -n "$job_dir" && -f "$job_dir/TASKS/$role.md" ]] && task_path="$job_dir/TASKS/$role.md"
+    latest_report=""; [[ -n "$job_dir" ]] && latest_report="$(workspace_latest_report_for_role "$job_dir" "$role")"
+    report_count=0; [[ -n "$job_dir" ]] && report_count="$(workspace_report_count_for_role "$job_dir" "$role")"
+    department="$(workspace_role_department "$role")"
+    tier="$(workspace_role_tier "$role")"
+    logical_node="$(workspace_role_logical_node "$role")"
+    if [[ "$tier" == ceo ]]; then manager_chain="[]"; else manager_chain="[\"$coordinator\"]"; fi
+    status="$(workspace_role_status "$selected_bool" "$pane_id" "$task_path" "$latest_report")"
+    status_reason="$(workspace_role_status_reason "$selected_bool" "$pane_id" "$task_path" "$latest_report")"
+    avatar="$(workspace_role_avatar "$role")"
+    printf '    {'
+    printf '"id": '; json_string "$role"; printf ', "role_id": '; json_string "$role"; printf ', '
+    printf '"configured": %s, "selected": %s, "running_pane": %s, ' "$configured_bool" "$selected_bool" "$running_pane"
+    printf '"pane_id": '; json_string "$pane_id"; printf ', '
+    printf '"task_path": '; json_string "$task_path"; printf ', '
+    printf '"latest_report_path": '; json_string "$latest_report"; printf ', '
+    printf '"department": '; json_string "$department"; printf ', '
+    printf '"tier": '; json_string "$tier"; printf ', '
+    printf '"logical_node": false, "logical_node_label": '; json_string "$logical_node"; printf ', '
+    printf '"manager_chain": %s, ' "$manager_chain"
+    printf '"status": '; json_string "$status"; printf ', '
+    printf '"status_reason": '; json_string "$status_reason"; printf ', '
+    printf '"source_paths": ['
+    source_first=1
+    if [[ -n "$task_path" ]]; then [[ "$source_first" == 1 ]] || printf ', '; source_first=0; json_string "$task_path"; fi
+    if [[ -n "$latest_report" ]]; then [[ "$source_first" == 1 ]] || printf ', '; source_first=0; json_string "$latest_report"; fi
+    if [[ -n "$team_path" && -f "$team_path" ]]; then [[ "$source_first" == 1 ]] || printf ', '; source_first=0; json_string "$team_path"; fi
+    printf '], '
+    printf '"avatar": {"style": '; json_string "$avatar"; printf ', "report_count": %s}' "$report_count"
+    printf '}'
+  done < <(workspace_collect_roles "$root" "$job_dir" "$configured")
+  printf '\n  ],\n'
+  printf '  "events": ['
+  first=1
+  local event
+  if [[ -f "$root/.agent-work/14_SHARED_CONTEXT/BROADCASTS.md" ]]; then
+    while IFS= read -r event; do
+      [[ -n "$event" ]] || continue
+      event="${event#\#\# }"
+      [[ "$first" == 1 ]] || printf ', '
+      first=0
+      json_string "$event"
+    done < <(grep -E '^## Broadcast ' "$root/.agent-work/14_SHARED_CONTEXT/BROADCASTS.md" 2>/dev/null | tail -10)
+  fi
+  printf '],\n'
+  printf '  "locks": {"path": '; json_string "$root/.agent-work/LOCKS.md"; printf ', "present": '
+  [[ -f "$root/.agent-work/LOCKS.md" ]] && printf 'true' || printf 'false'
+  printf '},\n'
+  printf '  "warnings": ['
+  first=1
+  if [[ -z "$job_dir" ]]; then json_string "No active job found"; first=0; fi
+  if [[ "$final_ready" != true && -n "$missing_roles" ]]; then [[ "$first" == 1 ]] || printf ', '; json_string "$final_reason"; fi
+  printf ']\n'
+  printf '}\n'
+}
+
+workspace_export_html() {
+  local root="$1" out="$2" tmp snapshot project job final_reason final_ready
+  [[ -n "$out" ]] || die "usage: agentdock workspace export --out <file>"
+  tmp="$(mktemp "${TMPDIR:-/tmp}/agentdock-workspace.XXXXXX")"
+  workspace_snapshot_json "$root" > "$tmp"
+  project="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["project"]["name"])' "$tmp")"
+  job="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["job"]["id"])' "$tmp")"
+  final_ready="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("ready" if d["job"]["final_ready"] else "not ready")' "$tmp")"
+  final_reason="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["job"]["final_ready_reason"])' "$tmp")"
+  mkdir -p "$(dirname "$out")"
+  {
+    printf '<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><title>AgentDock Visual Office</title>\n'
+    printf '<style>body{font-family:ui-sans-serif,system-ui;background:#101827;color:#e6edf3;margin:0;padding:24px}.top{display:flex;gap:16px;align-items:center}.badge{border:1px solid #4b5563;border-radius:999px;padding:4px 10px}.grid{display:grid;grid-template-columns:2fr 1fr;gap:18px}.bay{border:1px solid #344054;border-radius:14px;padding:16px;margin:12px 0;background:#172033}.role{display:inline-block;border:1px solid #475467;border-radius:10px;padding:10px;margin:6px;background:#111827}.muted{color:#9ca3af}pre{white-space:pre-wrap;background:#0b1020;border-radius:12px;padding:12px;max-height:360px;overflow:auto}</style></head><body>\n'
+    printf '<div class="top"><h1>AgentDock Visual Office</h1><span class="badge">Read-only observer</span><span class="badge">Project: %s</span><span class="badge">Job: %s</span></div>\n' "$(workspace_html_escape "$project")" "$(workspace_html_escape "$job")"
+    printf '<section class="bay"><h2>Final readiness: %s</h2><p><strong>Status reason</strong>: %s</p></section>\n' "$(workspace_html_escape "$final_ready")" "$(workspace_html_escape "$final_reason")"
+    printf '<div class="grid"><main>\n'
+    printf '<section class="bay"><h2>Product Bay</h2><p class="muted">Product, PM, UX and research roles.</p></section>\n'
+    printf '<section class="bay"><h2>Engineering Bay</h2><p class="muted">Architecture and developer roles.</p></section>\n'
+    printf '<section class="bay"><h2>Blocker Desk</h2><p class="muted">Warnings and missing report reasons are surfaced here.</p></section>\n'
+    printf '<section class="bay"><h2>Report Desk</h2><p class="muted">Reports and final readiness are derived from selected-role job reports.</p></section>\n'
+    printf '</main><aside class="bay"><h2>Reports</h2><p>Static export generated from workspace snapshot JSON. No daemon, command bridge, or tmux capture-pane is used.</p></aside></div>\n'
+    printf '<h2>Snapshot JSON</h2><pre id="snapshot">'
+    workspace_html_escape "$(cat "$tmp")"
+    printf '</pre>\n</body></html>\n'
+  } > "$out"
+  rm -f "$tmp"
+  say "Workspace export: $out"
+}
+
+cmd_workspace() {
+  local sub="${1:-}" root out=""
+  shift || true
+  root="$(require_project "$@")"
+  case "$sub" in
+    snapshot)
+      [[ "${1:-}" == "--json" ]] || die "usage: agentdock workspace snapshot --json"
+      workspace_snapshot_json "$root"
+      ;;
+    export)
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --out) out="${2:-}"; shift 2 ;;
+          --project) shift 2 ;;
+          --project=*) shift ;;
+          *) die "usage: agentdock workspace export --out <file>" ;;
+        esac
+      done
+      workspace_export_html "$root" "$out"
+      ;;
+    *) die "usage: agentdock workspace snapshot --json | workspace export --out <file>" ;;
+  esac
+}
+
 cmd_install() {
   local id="${1:-}" method="" yes=0
   [[ -n "$id" ]] || die "usage: agentdock install <tool|cli> [--method npm] [--yes]"
@@ -2824,6 +3485,7 @@ main() {
     inbox) cmd_inbox "$@" ;;
     watch) cmd_watch "$@" ;;
     report) cmd_report "$@" ;;
+    workspace) cmd_workspace "$@" ;;
     update) say "Update hosting is not implemented in the MVP. Re-run install.sh from the release source." ;;
     uninstall) say "Remove the installed agentdock executable and share directory manually. Project .agentdock and .agent-work are never deleted by this command." ;;
     *) die "unknown command: $cmd" ;;

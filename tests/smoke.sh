@@ -310,6 +310,37 @@ grep -q PANE_legacy_codex .agentdock/state/panes.env
 grep -q 'AgentDock Report' "$TMP/report.out"
 grep -q 'Current team plan' "$TMP/report.out"
 "$ROOT/bin/agentdock" report --json | json_validate
+
+coordination_checksum() {
+  find .agent-work .agentdock -type f \
+    ! -path './.agent-work/11_ARCHIVE/workspace.html' \
+    ! -path '.agent-work/11_ARCHIVE/workspace.html' \
+    -print | sort | while IFS= read -r file; do
+    cksum "$file"
+  done
+}
+
+coordination_checksum > "$TMP/workspace-before.cksum"
+"$ROOT/bin/agentdock" workspace snapshot --json > "$TMP/workspace-state.json"
+json_validate < "$TMP/workspace-state.json"
+grep -q '"schema_version"' "$TMP/workspace-state.json"
+grep -q '"final_ready"' "$TMP/workspace-state.json"
+grep -q '"missing_roles"' "$TMP/workspace-state.json"
+grep -q '"logical_node"' "$TMP/workspace-state.json"
+grep -q '"manager_chain"' "$TMP/workspace-state.json"
+"$ROOT/bin/agentdock" workspace export --out .agent-work/11_ARCHIVE/workspace.html
+test -s .agent-work/11_ARCHIVE/workspace.html
+grep -q 'AgentDock Visual Office' .agent-work/11_ARCHIVE/workspace.html
+grep -q 'Read-only observer' .agent-work/11_ARCHIVE/workspace.html
+grep -q 'Final readiness' .agent-work/11_ARCHIVE/workspace.html
+grep -q 'Reports' .agent-work/11_ARCHIVE/workspace.html
+grep -q 'Product Bay' .agent-work/11_ARCHIVE/workspace.html
+grep -q 'Engineering Bay' .agent-work/11_ARCHIVE/workspace.html
+grep -q 'Blocker Desk' .agent-work/11_ARCHIVE/workspace.html
+grep -q 'Report Desk' .agent-work/11_ARCHIVE/workspace.html
+grep -q 'Status reason' .agent-work/11_ARCHIVE/workspace.html
+coordination_checksum > "$TMP/workspace-after.cksum"
+cmp "$TMP/workspace-before.cksum" "$TMP/workspace-after.cksum"
 "$ROOT/bin/agentdock" cli list --json | json_validate
 "$ROOT/bin/agentdock" stop --yes
 ! tmux has-session -t "$SESSION" 2>/dev/null
