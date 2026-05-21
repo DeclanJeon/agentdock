@@ -3268,31 +3268,136 @@ workspace_snapshot_json() {
 }
 
 workspace_export_html() {
-  local root="$1" out="$2" tmp snapshot project job final_reason final_ready
+  local root="$1" out="$2" tmp
   [[ -n "$out" ]] || die "usage: agentdock workspace export --out <file>"
   workspace_validate_export_out "$root" "$out"
   tmp="$(mktemp "${TMPDIR:-/tmp}/agentdock-workspace.XXXXXX")"
   workspace_snapshot_json "$root" > "$tmp"
-  project="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["project"]["name"])' "$tmp")"
-  job="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["job"]["id"])' "$tmp")"
-  final_ready="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print("ready" if d["job"]["final_ready"] else "not ready")' "$tmp")"
-  final_reason="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["job"]["final_ready_reason"])' "$tmp")"
   mkdir -p "$(dirname "$out")"
-  {
-    printf '<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><title>AgentDock Visual Office</title>\n'
-    printf '<style>body{font-family:ui-sans-serif,system-ui;background:#101827;color:#e6edf3;margin:0;padding:24px}.top{display:flex;gap:16px;align-items:center}.badge{border:1px solid #4b5563;border-radius:999px;padding:4px 10px}.grid{display:grid;grid-template-columns:2fr 1fr;gap:18px}.bay{border:1px solid #344054;border-radius:14px;padding:16px;margin:12px 0;background:#172033}.role{display:inline-block;border:1px solid #475467;border-radius:10px;padding:10px;margin:6px;background:#111827}.muted{color:#9ca3af}pre{white-space:pre-wrap;background:#0b1020;border-radius:12px;padding:12px;max-height:360px;overflow:auto}</style></head><body>\n'
-    printf '<div class="top" role="banner" aria-label="AgentDock workspace summary"><h1>AgentDock Visual Office</h1><span class="badge">Read-only observer</span><span class="badge">Project: %s</span><span class="badge">Job: %s</span></div>\n' "$(workspace_html_escape "$project")" "$(workspace_html_escape "$job")"
-    printf '<section class="bay" aria-label="Final readiness"><h2>Final readiness: %s</h2><p><strong>Status reason</strong>: %s</p></section>\n' "$(workspace_html_escape "$final_ready")" "$(workspace_html_escape "$final_reason")"
-    printf '<div class="grid"><main aria-label="Workspace office zones">\n'
-    printf '<section class="bay" aria-label="Product Bay"><h2>Product Bay</h2><p class="muted">Product, PM, UX and research roles.</p></section>\n'
-    printf '<section class="bay" aria-label="Engineering Bay"><h2>Engineering Bay</h2><p class="muted">Architecture and developer roles.</p></section>\n'
-    printf '<section class="bay" aria-label="Blocker Desk"><h2>Blocker Desk</h2><p class="muted">Warnings and missing report reasons are surfaced here.</p></section>\n'
-    printf '<section class="bay" aria-label="Report Desk"><h2>Report Desk</h2><p class="muted">Reports and final readiness are derived from selected-role job reports. Density information is embedded in the snapshot layout metadata.</p><button type="button" role="button" aria-label="Read-only report desk summary" disabled>Read-only summary</button></section>\n'
-    printf '</main><aside class="bay" aria-label="Snapshot evidence"><h2>Reports</h2><p>Static export generated from workspace snapshot JSON. No daemon, command bridge, or tmux capture-pane is used.</p></aside></div>\n'
-    printf '<h2>Snapshot JSON</h2><pre id="snapshot" aria-label="Embedded workspace snapshot JSON">'
-    workspace_html_escape "$(cat "$tmp")"
-    printf '</pre>\n</body></html>\n'
-  } > "$out"
+  python3 - "$tmp" "$root" "$out" "$INSTALL_ROOT" <<'PY'
+import base64
+import html
+import json
+import sys
+from pathlib import Path
+
+snapshot_path = Path(sys.argv[1])
+root = Path(sys.argv[2])
+out = Path(sys.argv[3])
+install_root = Path(sys.argv[4])
+data = json.loads(snapshot_path.read_text(encoding="utf-8"))
+assets = install_root / "assets" / "workspace-characters"
+
+
+def esc(value):
+    return html.escape(str(value), quote=True)
+
+
+def character_data_uri(index):
+    path = assets / f"character-{index:02d}.gif"
+    if not path.exists():
+        return ""
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:image/gif;base64,{encoded}"
+
+roles = data.get("roles", [])
+density = data.get("layout", {}).get("density", "normal")
+job = data.get("job", {})
+project = data.get("project", {})
+final_ready = "ready" if job.get("final_ready") else "not ready"
+final_reason = job.get("final_ready_reason", "")
+
+zones = [
+    ("CEO Office", lambda r: r.get("tier") == "ceo" or r.get("department") == "Executive"),
+    ("Product Bay", lambda r: "Product" in r.get("department", "") or "UX" in r.get("department", "")),
+    ("Engineering Bay", lambda r: "Engineering" in r.get("department", "") or "Architecture" in r.get("department", "")),
+    ("Quality Bay", lambda r: "Quality" in r.get("department", "") or "QA" in r.get("id", "").upper()),
+    ("Delivery Bay", lambda r: "Delivery" in r.get("department", "") or "delivery" in r.get("id", "")),
+]
+
+assigned = set()
+zone_cards = []
+for zone_name, predicate in zones:
+    members = []
+    for i, role in enumerate(roles, start=1):
+        if id(role) in assigned:
+            continue
+        if predicate(role):
+            assigned.add(id(role))
+            members.append((i, role))
+    zone_cards.append((zone_name, members))
+remaining = [(i, r) for i, r in enumerate(roles, start=1) if id(r) not in assigned]
+if remaining:
+    zone_cards.append(("General Bay", remaining))
+
+css = """
+:root{color-scheme:dark;--bg:#101827;--panel:#172033;--panel2:#111827;--line:#344054;--text:#e6edf3;--muted:#9ca3af;--green:#86efac;--yellow:#fde68a;--red:#fca5a5;--blue:#93c5fd}
+*{box-sizing:border-box}body{font-family:ui-sans-serif,system-ui;background:radial-gradient(circle at top left,#1f2a44,var(--bg) 42%);color:var(--text);margin:0;padding:24px}.top{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.badge{border:1px solid #4b5563;border-radius:999px;padding:4px 10px;background:#0b1020}.grid{display:grid;grid-template-columns:minmax(0,2fr) minmax(280px,1fr);gap:18px}.bay{border:1px solid var(--line);border-radius:16px;padding:16px;margin:12px 0;background:linear-gradient(180deg,var(--panel),#121a2b)}.role-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:10px}.role{border:1px solid #475467;border-radius:14px;padding:10px;background:var(--panel2);min-height:168px;position:relative;overflow:hidden}.role.ready{border-color:#166534}.role.running{border-color:#1d4ed8}.role.blocked{border-color:#991b1b}.role.assigned{border-color:#a16207}.pet{width:64px;height:64px;image-rendering:pixelated;display:block;margin:0 auto 8px;filter:drop-shadow(0 6px 0 rgba(0,0,0,.24))}.role-name{font-weight:800;text-align:center;word-break:break-word}.status{font-size:12px;text-align:center;margin-top:4px}.ready .status{color:var(--green)}.running .status{color:var(--blue)}.blocked .status{color:var(--red)}.assigned .status{color:var(--yellow)}.meta{font-size:11px;color:var(--muted);text-align:center;margin-top:4px}.muted{color:var(--muted)}pre{white-space:pre-wrap;background:#0b1020;border-radius:12px;padding:12px;max-height:360px;overflow:auto}.desk-list{margin:0;padding-left:18px}.density-crowded .role{min-height:144px}.density-crowded .pet{width:48px;height:48px}.density-dense .pet{width:56px;height:56px}@media(max-width:900px){.grid{grid-template-columns:1fr}}
+"""
+
+parts = []
+parts.append('<!doctype html>')
+parts.append('<html lang="en"><head><meta charset="utf-8"><title>AgentDock Visual Office</title>')
+parts.append(f'<style>{css}</style></head><body class="density-{esc(density)}">')
+parts.append('<div class="top" role="banner" aria-label="AgentDock workspace summary">')
+parts.append('<h1>AgentDock Visual Office</h1>')
+parts.append('<span class="badge">Read-only observer</span>')
+parts.append(f'<span class="badge">Project: {esc(project.get("name", ""))}</span>')
+parts.append(f'<span class="badge">Job: {esc(job.get("id", ""))}</span>')
+parts.append(f'<span class="badge">Density: {esc(density)}</span>')
+parts.append(f'<span class="badge">Characters: {len(roles)} / 50 GIF pool</span>')
+parts.append('</div>')
+parts.append(f'<section class="bay" aria-label="Final readiness"><h2>Final readiness: {esc(final_ready)}</h2><p><strong>Status reason</strong>: {esc(final_reason)}</p></section>')
+parts.append('<div class="grid"><main aria-label="Workspace office zones">')
+for zone_name, members in zone_cards:
+    parts.append(f'<section class="bay" aria-label="{esc(zone_name)}"><h2>{esc(zone_name)}</h2>')
+    if zone_name == "Product Bay":
+        parts.append('<p class="muted">Product, PM, UX and research roles.</p>')
+    elif zone_name == "Engineering Bay":
+        parts.append('<p class="muted">Architecture and developer roles.</p>')
+    if not members:
+        parts.append('<p class="muted">No active character in this zone.</p>')
+    else:
+        parts.append('<div class="role-grid">')
+        for i, role in members:
+            status = role.get("status", "assigned")
+            cls = "blocked" if status == "blocked" else status
+            char_index = ((i - 1) % 50) + 1
+            uri = character_data_uri(char_index)
+            role_id = role.get("id", "role")
+            img = f'<img class="pet" src="{uri}" alt="Tamagotchi GIF character {char_index:02d} for {esc(role_id)}" aria-label="Animated Tamagotchi character for {esc(role_id)}">' if uri else '<div class="pet" aria-label="Missing Tamagotchi character GIF">◉</div>'
+            parts.append(f'<article class="role {esc(cls)}" role="button" aria-label="{esc(role_id)} character card, status {esc(status)}">')
+            parts.append(img)
+            parts.append(f'<div class="role-name">{esc(role_id)}</div>')
+            parts.append(f'<div class="status">{esc(status)}</div>')
+            parts.append(f'<div class="meta">{esc(role.get("department", ""))}</div>')
+            parts.append(f'<div class="meta">reports: {esc(role.get("avatar", {}).get("report_count", 0))}</div>')
+            parts.append('</article>')
+        parts.append('</div>')
+    parts.append('</section>')
+parts.append('<section class="bay" aria-label="Blocker Desk"><h2>Blocker Desk</h2>')
+alerts = data.get("alerts", [])
+warnings = data.get("warnings", [])
+if alerts or warnings:
+    parts.append('<ul class="desk-list">')
+    for item in alerts:
+        parts.append(f'<li>{esc(item.get("message", item))}</li>')
+    for item in warnings:
+        parts.append(f'<li>{esc(item)}</li>')
+    parts.append('</ul>')
+else:
+    parts.append('<p class="muted">No blockers or warnings.</p>')
+parts.append('</section>')
+parts.append('<section class="bay" aria-label="Report Desk"><h2>Report Desk</h2>')
+reports = data.get("reports", {})
+parts.append(f'<p class="muted">Reports: {esc(reports.get("submitted_selected_roles", 0))}/{esc(reports.get("required_selected_roles", 0))}. Density information is embedded in the snapshot layout metadata.</p>')
+parts.append('<button type="button" role="button" aria-label="Read-only report desk summary" disabled>Read-only summary</button></section>')
+parts.append('</main><aside class="bay" aria-label="Snapshot evidence"><h2>Reports</h2><p>Static export generated from workspace snapshot JSON. No daemon, command bridge, or tmux capture-pane is used.</p><p class="muted">Tamagotchi GIFs are bundled and embedded as data URIs for portable visual review.</p></aside></div>')
+parts.append('<h2>Snapshot JSON</h2><pre id="snapshot" aria-label="Embedded workspace snapshot JSON">')
+parts.append(esc(json.dumps(data, ensure_ascii=False, indent=2)))
+parts.append('</pre>\n</body></html>\n')
+out.write_text("\n".join(parts), encoding="utf-8")
+PY
   rm -f "$tmp"
   say "Workspace export: $out"
 }

@@ -26,10 +26,13 @@ jobs:
           sudo apt-get install -y tmux
 
       - name: Check Bash syntax
-        run: bash -n bin/agentdock install.sh tests/smoke.sh scripts/check-version.sh
+        run: bash -n bin/agentdock install.sh tests/smoke.sh tests/workspace_p05.sh scripts/check-version.sh
 
       - name: Check version metadata
         run: bash scripts/check-version.sh
+
+      - name: Run workspace contract test
+        run: bash tests/workspace_p05.sh
 
       - name: Run smoke test
         run: bash tests/smoke.sh

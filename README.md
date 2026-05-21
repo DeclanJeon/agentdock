@@ -67,7 +67,7 @@ AgentDock intentionally keeps Codex, OpenCode, Gemini, Claude, and other CLIs ou
 - Safer local configuration parsing: runtime and adapter config files are parsed as key-value data instead of sourced as shell scripts, and adapter install commands use allowlisted patterns.
 - More reliable local operations with root-hash tmux session names, microsecond report timestamps, locked pane-state updates, JSON escaping fixes, and release `SHA256SUMS`.
 - New `adock report --fast` for a lightweight status snapshot when the full report scan is unnecessary.
-- Hardened Visual Workspace contract with `workspace.snapshot.v1`, secret redaction, config fallback warnings, export path policy, accessibility labels, and 50-role density metadata.
+- Hardened Visual Workspace contract with `workspace.snapshot.v1`, bundled Tamagotchi-style GIF character cards, secret redaction, config fallback warnings, export path policy, accessibility labels, and 50-role density metadata.
 
 ## Install
 
@@ -285,7 +285,7 @@ adock workspace snapshot --json
 adock workspace export --out .agent-work/11_ARCHIVE/workspace.html
 ```
 
-The snapshot schema is versioned as `workspace.snapshot.v1`. Snapshot/export output redacts common secret patterns, warns instead of failing on invalid optional workspace config, and keeps old/no-active-job states backward-compatible. HTML exports include accessibility labels and role button semantics for visual review.
+The snapshot schema is versioned as `workspace.snapshot.v1`. Snapshot/export output redacts common secret patterns, warns instead of failing on invalid optional workspace config, and keeps old/no-active-job states backward-compatible. HTML exports render Tamagotchi-style animated GIF character cards for roles, include accessibility labels, and use role button semantics for visual review.
 
 Export path policy is intentionally conservative: archive-style workspace exports under `.agent-work/11_ARCHIVE/workspace*.html` are allowed, but coordination files such as `.agent-work/LOCKS.md`, parent traversal paths, and symlink outputs are rejected.
 
@@ -354,7 +354,7 @@ bash tests/smoke.sh
 
 The smoke test uses a fake Hermes binary, starts tmux, validates Hermes-only runtime migration, verifies CEO-led jobs, checks role report submission, aggregates final reports, protects unfinished panes, and shuts the session down.
 
-The workspace P0.5 test validates snapshot schema compatibility, missing-report/final-ready semantics, blocker taxonomy, secret redaction, invalid config fallback warnings, safe export paths, accessibility markers, and 50-role density handling.
+The workspace P0.5 test validates snapshot schema compatibility, missing-report/final-ready semantics, blocker taxonomy, secret redaction, invalid config fallback warnings, safe export paths, accessibility markers, embedded Tamagotchi GIF character cards, and 50-role density handling.
 
 ## Release
 

@@ -27,15 +27,16 @@ jobs:
 
       - name: Verify
         run: |
-          bash -n bin/agentdock install.sh tests/smoke.sh scripts/check-version.sh
+          bash -n bin/agentdock install.sh tests/smoke.sh tests/workspace_p05.sh scripts/check-version.sh
           bash scripts/check-version.sh
+          bash tests/workspace_p05.sh
           bash tests/smoke.sh
 
       - name: Package
         run: |
           pkg="agentdock-${GITHUB_REF_NAME}"
           mkdir -p "dist/${pkg}"
-          cp -R README.md VERSION install.sh bin adapters tests scripts "dist/${pkg}/"
+          cp -R README.md VERSION install.sh bin adapters assets tests scripts "dist/${pkg}/"
           tar -C dist -czf "dist/${pkg}.tar.gz" "${pkg}"
           (cd dist && zip -qr "${pkg}.zip" "${pkg}")
           (cd dist && sha256sum "${pkg}.tar.gz" "${pkg}.zip" > SHA256SUMS)

@@ -69,6 +69,8 @@ json_get "$TMP/active.json" 'assert d["job"]["final_ready"] is False; assert "de
 (cd "$P1" && "$ROOT/bin/agentdock" workspace export --out .agent-work/11_ARCHIVE/workspace.html)
 grep -q 'aria-label=' "$P1/.agent-work/11_ARCHIVE/workspace.html"
 grep -q 'role="button"' "$P1/.agent-work/11_ARCHIVE/workspace.html"
+grep -q 'data:image/gif;base64' "$P1/.agent-work/11_ARCHIVE/workspace.html"
+grep -q 'Tamagotchi GIF character' "$P1/.agent-work/11_ARCHIVE/workspace.html"
 ! grep -q 'sk-secret1234567890' "$P1/.agent-work/11_ARCHIVE/workspace.html"
 
 # safe --out policy: allow archive workspace export, reject coordination overwrite/traversal/symlink
@@ -94,5 +96,7 @@ for i in $(seq -w 1 50); do printf '# Report\n\nSummary: role %s done\n' "$i" > 
 json_get "$TMP/fifty.json" 'assert d["job"]["final_ready"] is True; assert len(d["roles"]) >= 51; assert d["layout"]["density"] in ("normal","dense","crowded")'
 (cd "$P50" && "$ROOT/bin/agentdock" workspace export --out .agent-work/11_ARCHIVE/workspace.html)
 grep -q 'Density' "$P50/.agent-work/11_ARCHIVE/workspace.html"
+grep -q 'Characters: 51 / 50 GIF pool' "$P50/.agent-work/11_ARCHIVE/workspace.html"
+grep -q 'character card' "$P50/.agent-work/11_ARCHIVE/workspace.html"
 
 echo "workspace p0.5 ok"
