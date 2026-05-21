@@ -53,6 +53,7 @@ AgentDock intentionally keeps Codex, OpenCode, Gemini, Claude, and other CLIs ou
 | Role reports | Roles submit `YYMMDDHH:MM:SS-<role>.md` reports with `adock job report`. |
 | CEO final reports | `adock job finish` aggregates role reports into `YYMMDDHH:MM:SS-final.md` and copies it to `.agent-work/10_REPORTS/<ceo>/`. |
 | Completion-gated teardown | `adock job finish` refuses missing selected-role reports, then tears down only completed/reported worker panes. Unfinished panes stay open. |
+| Read-only visual workspace | `adock workspace snapshot --json` and `adock workspace export --out <file>` render `.agent-work` job/team/report state without mutating coordination files. |
 | Hermes-only runtime | Runtime panes use Hermes Agent only, avoiding collisions with Codex, Claude, Gemini, or other CLIs' own agent systems. |
 | Local-first state | Bash, tmux, Hermes Agent, and project files. No daemon, hosted scheduler, or remote control plane. |
 | Safer project isolation | New projects use a root-hash tmux session name, reducing collisions between directories with the same basename. |
@@ -66,6 +67,7 @@ AgentDock intentionally keeps Codex, OpenCode, Gemini, Claude, and other CLIs ou
 - Safer local configuration parsing: runtime and adapter config files are parsed as key-value data instead of sourced as shell scripts, and adapter install commands use allowlisted patterns.
 - More reliable local operations with root-hash tmux session names, microsecond report timestamps, locked pane-state updates, JSON escaping fixes, and release `SHA256SUMS`.
 - New `adock report --fast` for a lightweight status snapshot when the full report scan is unnecessary.
+- Hardened Visual Workspace contract with `workspace.snapshot.v1`, secret redaction, config fallback warnings, export path policy, accessibility labels, and 50-role density metadata.
 
 ## Install
 
@@ -274,6 +276,19 @@ Broadcast messages are truncated for pane delivery at 1200 characters by default
 | `adock-delegate --from <role> --request "..."` | Hermes-facing helper used inside role panes to create a CEO-led job from a direct user request. |
 | `adock report [--json]` | Summarize session state, configured/running roles, current job, lifecycle status, and recent reports. |
 
+### Visual Workspace
+
+The Visual Workspace is a read-only observer over `.agent-work`. It exposes the active job, selected roles, report readiness, blockers, warnings, lifecycle metadata, and density hints for larger teams while preserving `.agent-work` as the source of truth.
+
+```bash
+adock workspace snapshot --json
+adock workspace export --out .agent-work/11_ARCHIVE/workspace.html
+```
+
+The snapshot schema is versioned as `workspace.snapshot.v1`. Snapshot/export output redacts common secret patterns, warns instead of failing on invalid optional workspace config, and keeps old/no-active-job states backward-compatible. HTML exports include accessibility labels and role button semantics for visual review.
+
+Export path policy is intentionally conservative: archive-style workspace exports under `.agent-work/11_ARCHIVE/workspace*.html` are allowed, but coordination files such as `.agent-work/LOCKS.md`, parent traversal paths, and symlink outputs are rejected.
+
 ### Templates And Adapters
 
 | Command | Purpose |
@@ -333,10 +348,13 @@ Hermes installation guidance may include the upstream Hermes `curl | bash` insta
 ```bash
 bash -n bin/agentdock install.sh tests/smoke.sh scripts/check-version.sh
 bash scripts/check-version.sh
+bash tests/workspace_p05.sh
 bash tests/smoke.sh
 ```
 
 The smoke test uses a fake Hermes binary, starts tmux, validates Hermes-only runtime migration, verifies CEO-led jobs, checks role report submission, aggregates final reports, protects unfinished panes, and shuts the session down.
+
+The workspace P0.5 test validates snapshot schema compatibility, missing-report/final-ready semantics, blocker taxonomy, secret redaction, invalid config fallback warnings, safe export paths, accessibility markers, and 50-role density handling.
 
 ## Release
 

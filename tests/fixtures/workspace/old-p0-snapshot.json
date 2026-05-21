@@ -1,0 +1,15 @@
+{
+  "schema_version": "workspace.snapshot.v1",
+  "generated_at": "2026-05-21T17:12:00Z",
+  "project": {"name": "agentdock", "root": "/tmp/agentdock", "session": "project-agents", "session_name": "project-agents"},
+  "job": {"id": "JOB-P0", "path": "/tmp/agentdock/.agent-work/07_JOBS/JOB-P0", "readme_path": "/tmp/agentdock/.agent-work/07_JOBS/JOB-P0/README.md", "lifecycle": "executing", "lifecycle_status": "executing", "final_ready": false, "final_ready_reason": "Missing job report(s) for selected worker role(s): developer"},
+  "reports": {"total": 0, "submitted": 0, "required": 2, "submitted_selected_roles": 0, "required_selected_roles": 2, "missing_roles": ["developer"]},
+  "org": {"model": "CEO -> department bay -> role", "zones": ["CEO Office", "Product Bay", "Engineering Bay", "Quality Bay", "Delivery Bay", "Blocker Desk", "Report Desk"]},
+  "roles": [
+    {"id":"orchestrator","role_id":"orchestrator","configured":true,"selected":true,"running_pane":false,"pane_id":"","task_path":"/tmp/agentdock/.agent-work/07_JOBS/JOB-P0/TASKS/orchestrator.md","latest_report_path":"","department":"Executive","tier":"ceo","logical_node":false,"logical_node_label":"CEO Office","manager_chain":[],"status":"assigned","status_reason":"Selected role has a task card, but no active pane mapping or report yet.","source_paths":["/tmp/agentdock/.agent-work/07_JOBS/JOB-P0/TASKS/orchestrator.md"],"avatar":{"style":"captain","report_count":0}},
+    {"id":"developer","role_id":"developer","configured":true,"selected":true,"running_pane":false,"pane_id":"","task_path":"/tmp/agentdock/.agent-work/07_JOBS/JOB-P0/TASKS/developer.md","latest_report_path":"","department":"Engineering Bay","tier":"worker","logical_node":false,"logical_node_label":"Engineering Workbench","manager_chain":["orchestrator"],"status":"assigned","status_reason":"Selected role has a task card, but no active pane mapping or report yet.","source_paths":["/tmp/agentdock/.agent-work/07_JOBS/JOB-P0/TASKS/developer.md"],"avatar":{"style":"keyboard-pet","report_count":0}}
+  ],
+  "events": [],
+  "locks": {"path":"/tmp/agentdock/.agent-work/LOCKS.md","present":true},
+  "warnings": ["Missing job report(s) for selected worker role(s): developer"]
+}
