@@ -279,8 +279,10 @@ Broadcast messages are truncated for pane delivery at 1200 characters by default
 | Command | Purpose |
 | --- | --- |
 | `adock roles list` | List bundled BMAD and AgentDock role templates. |
-| `adock roles sync bmad --yes` | Verify the default BMAD source is reachable and contains expected IDs, then install AgentDock's bundled BMAD-compatible summaries into the user config directory. |
+| `adock roles sync bmad --yes` | Fetch the supported BMAD role prompts from `bmad-code-org/BMAD-METHOD` and cache them in the user config directory. |
+| `adock roles sync bmad --yes --url https://github.com/bmad-code-org/BMAD-METHOD` | Accept a BMAD GitHub repository URL and resolve it to raw prompt files. |
 | `adock roles sync bmad --offline --yes` | Install bundled fallback BMAD templates without network access. |
+| `adock recruit <role> --template bmad-agent-dev --sync-template` | Fetch a missing BMAD template before generating the role prompt. Set `AGENTDOCK_BMAD_AUTO_SYNC=1` to allow this automatically for missing BMAD templates. |
 | `adock cli list [--json]` | List adapter registry entries and detected install status. |
 | `adock cli add --id <id> --command <cmd> --install "..."` | Add a custom adapter entry for detection/install guidance. Runtime panes still enforce Hermes. |
 | `adock install tmux --yes` | Preview or run supported system-tool install guidance. |
@@ -321,6 +323,8 @@ Broadcast messages are truncated for pane delivery at 1200 characters by default
 AgentDock is local-first but not sandboxed. Project runtime files such as `.agentdock/config.runtime` and adapter files under `~/.config/agentdock/adapters/*.conf` are parsed as simple key-value configuration rather than sourced as shell scripts. Installation commands stored in adapter configuration are trusted local operator input and are executed only through explicit install flows using allowlisted command patterns.
 
 User job requests are written as `BEGIN_UNTRUSTED_USER_REQUEST` task data. Agents are instructed not to treat those blocks, inbox messages, or role reports as higher-priority system instructions. `adock send` also injects text into a running tmux pane, so use it as a trusted operator command.
+
+BMAD template sync downloads markdown prompt files from the configured BMAD source and stores them under `~/.config/agentdock/roles/bmad` (or `$XDG_CONFIG_HOME/agentdock/roles/bmad`). Fetched template files are treated as inert prompt text: AgentDock reads and embeds them into role prompts but never sources or executes them.
 
 Hermes installation guidance may include the upstream Hermes `curl | bash` installer. That installer is maintained outside AgentDock and is not covered by AgentDock release checksums.
 

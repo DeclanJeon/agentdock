@@ -139,6 +139,38 @@ grep -q bmad-agent-dev "$TMP/roles.out"
 grep -q agentdock-qa "$TMP/roles.out"
 "$ROOT/bin/agentdock" roles sync bmad --offline --yes
 test -f "$XDG_CONFIG_HOME/agentdock/roles/bmad/bmad-agent-dev.md"
+BMAD_FIXTURE="$TMP/bmad-source"
+for path in \
+  src/bmm-skills/1-analysis/bmad-agent-analyst/SKILL.md \
+  src/bmm-skills/1-analysis/bmad-agent-tech-writer/SKILL.md \
+  src/bmm-skills/2-plan-workflows/bmad-agent-pm/SKILL.md \
+  src/bmm-skills/2-plan-workflows/bmad-agent-ux-designer/SKILL.md \
+  src/bmm-skills/3-solutioning/bmad-agent-architect/SKILL.md \
+  src/bmm-skills/4-implementation/bmad-agent-dev/SKILL.md; do
+  mkdir -p "$BMAD_FIXTURE/$(dirname "$path")"
+  {
+    printf '%s\n' '---'
+    printf '%s\n' 'name: fixture-bmad-agent'
+    printf '%s\n' 'description: Fixture BMAD agent prompt for AgentDock sync tests.'
+    printf '%s\n' '---'
+    printf '%s\n\n' '# Fixture BMAD Agent'
+    printf '%s\n' 'Agent persona role commands activation Developer Architect Analyst Product Manager UX Technical Writer.'
+    printf 'Fixture prompt body %.0s' {1..80}
+    printf '\n'
+  } > "$BMAD_FIXTURE/$path"
+done
+XDG_CONFIG_HOME="$TMP/bmad-sync-config" "$ROOT/bin/agentdock" roles sync bmad --yes --url "$BMAD_FIXTURE"
+test -f "$TMP/bmad-sync-config/agentdock/roles/bmad/bmad-agent-dev.md"
+grep -q 'Fixture BMAD Agent' "$TMP/bmad-sync-config/agentdock/roles/bmad/bmad-agent-dev.md"
+grep -q 'src/bmm-skills/4-implementation/bmad-agent-dev/SKILL.md' "$TMP/bmad-sync-config/agentdock/roles/bmad/bmad-agent-dev.md"
+(
+  mkdir -p "$TMP/recruit-sync-project"
+  cd "$TMP/recruit-sync-project"
+  XDG_CONFIG_HOME="$TMP/recruit-sync-config" "$ROOT/bin/agentdock" init --roles orchestrator >/dev/null
+  XDG_CONFIG_HOME="$TMP/recruit-sync-config" "$ROOT/bin/agentdock" recruit api-dev --template bmad-agent-dev --sync-template --template-url "$BMAD_FIXTURE" --skip-missing --mission "Fixture mission" >/dev/null
+  grep -q 'Fixture BMAD Agent' .agentdock/prompts/api-dev.md
+  grep -q 'Fixture mission' .agentdock/prompts/api-dev.md
+)
 "$ROOT/bin/agentdock" start --no-attach --skip-missing
 grep -Eq '^AGENT_ceo_orchestrator_CLI="?hermes"?$' .agentdock/config.runtime
 grep -q 'Assigned CLI: hermes' .agentdock/generated/boot-legacy-codex.md

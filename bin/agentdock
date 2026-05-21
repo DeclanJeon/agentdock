@@ -20,6 +20,9 @@ AGENTDOCK_ROLE_TEMPLATE_DIR="$INSTALL_ROOT/roles/agentdock"
 USER_ADAPTER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/agentdock/adapters"
 USER_ROLE_TEMPLATE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/agentdock/roles/bmad"
 USER_AGENTDOCK_ROLE_TEMPLATE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/agentdock/roles/agentdock"
+BMAD_GITHUB_OWNER="${AGENTDOCK_BMAD_GITHUB_OWNER:-bmad-code-org}"
+BMAD_GITHUB_REPO="${AGENTDOCK_BMAD_GITHUB_REPO:-BMAD-METHOD}"
+BMAD_DEFAULT_REF="${AGENTDOCK_BMAD_REF:-main}"
 
 err() { printf 'agentdock: %s\n' "$*" >&2; }
 die() { err "$*"; exit 1; }
@@ -178,7 +181,7 @@ Commands:
   setup [--cli hermes]    Install missing runtime dependencies
   cli list [--json]       List adapter registry
   cli add ...             Add a custom adapter
-  roles list|sync bmad    List or sync role templates
+  roles list|sync bmad    List or sync BMAD role templates
   install <tool|cli>      Preview/run a dependency or AI CLI install command
   init                    Initialize .agentdock and .agent-work
   role add <id>           Add a project role
@@ -399,6 +402,121 @@ role_template_file() {
   printf '%s\n' "$ROLE_TEMPLATE_DIR/$id.md"
 }
 
+bmad_template_ids() {
+  printf '%s\n' bmad-agent-dev bmad-analyst bmad-architect bmad-pm bmad-tech-writer bmad-ux-designer
+}
+
+is_bmad_template_id() {
+  local id
+  id="$(canonical_role_template_id "${1:-}")" || return 1
+  [[ "$id" == bmad-* ]]
+}
+
+bmad_template_source_path() {
+  local id
+  id="$(canonical_role_template_id "${1:-}")" || return 1
+  case "$id" in
+    bmad-analyst) printf '%s\n' "src/bmm-skills/1-analysis/bmad-agent-analyst/SKILL.md" ;;
+    bmad-tech-writer) printf '%s\n' "src/bmm-skills/1-analysis/bmad-agent-tech-writer/SKILL.md" ;;
+    bmad-pm) printf '%s\n' "src/bmm-skills/2-plan-workflows/bmad-agent-pm/SKILL.md" ;;
+    bmad-ux-designer) printf '%s\n' "src/bmm-skills/2-plan-workflows/bmad-agent-ux-designer/SKILL.md" ;;
+    bmad-architect) printf '%s\n' "src/bmm-skills/3-solutioning/bmad-agent-architect/SKILL.md" ;;
+    bmad-agent-dev) printf '%s\n' "src/bmm-skills/4-implementation/bmad-agent-dev/SKILL.md" ;;
+    *) return 1 ;;
+  esac
+}
+
+bmad_source_base() {
+  local url="${1:-}" ref="${2:-$BMAD_DEFAULT_REF}"
+  if [[ -z "$url" ]]; then
+    printf 'https://raw.githubusercontent.com/%s/%s/%s\n' "$BMAD_GITHUB_OWNER" "$BMAD_GITHUB_REPO" "$ref"
+    return
+  fi
+  url="${url%.git}"
+  url="${url%/}"
+  case "$url" in
+    https://github.com/"$BMAD_GITHUB_OWNER"/"$BMAD_GITHUB_REPO")
+      printf 'https://raw.githubusercontent.com/%s/%s/%s\n' "$BMAD_GITHUB_OWNER" "$BMAD_GITHUB_REPO" "$ref"
+      ;;
+    https://github.com/"$BMAD_GITHUB_OWNER"/"$BMAD_GITHUB_REPO"/tree/*)
+      local tree_ref="${url#https://github.com/$BMAD_GITHUB_OWNER/$BMAD_GITHUB_REPO/tree/}"
+      tree_ref="${tree_ref%%/*}"
+      printf 'https://raw.githubusercontent.com/%s/%s/%s\n' "$BMAD_GITHUB_OWNER" "$BMAD_GITHUB_REPO" "$tree_ref"
+      ;;
+    *)
+      printf '%s\n' "$url"
+      ;;
+  esac
+}
+
+fetch_bmad_source_file() {
+  local base="$1" path="$2" dest="$3" source_path
+  case "$base" in
+    file://*)
+      source_path="${base#file://}/$path"
+      [[ -f "$source_path" ]] || return 1
+      cp "$source_path" "$dest"
+      ;;
+    /*|.*)
+      source_path="$base/$path"
+      [[ -f "$source_path" ]] || return 1
+      cp "$source_path" "$dest"
+      ;;
+    *)
+      have curl || die "curl is required for BMAD sync. Rerun with --offline to install bundled templates."
+      curl -fsSL "$base/$path" > "$dest"
+      ;;
+  esac
+}
+
+validate_bmad_template_file() {
+  local file="$1" bytes
+  [[ -s "$file" ]] || return 1
+  bytes="$(wc -c < "$file" | tr -d ' ')"
+  (( bytes >= 500 )) || return 1
+  grep -Eiq '^(name|description):|^# |persona|role|agent|commands|activation|Developer|Architect|Analyst|Product Manager|UX|Technical Writer' "$file"
+}
+
+sync_bmad_template() {
+  local id="$1" base="$2" ref="$3" path tmp url
+  id="$(canonical_role_template_id "$id")" || return 1
+  is_bmad_template_id "$id" || return 1
+  path="$(bmad_template_source_path "$id")" || return 1
+  mkdir -p "$USER_ROLE_TEMPLATE_DIR"
+  tmp="$(mktemp "${TMPDIR:-/tmp}/agentdock-bmad-template.XXXXXX")"
+  if ! fetch_bmad_source_file "$base" "$path" "$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  if ! validate_bmad_template_file "$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  url="$base/$path"
+  {
+    printf '<!-- Source: %s -->\n' "$url"
+    printf '<!-- BMAD ref: %s -->\n' "$ref"
+    printf '<!-- AgentDock template: %s -->\n\n' "$id"
+    cat "$tmp"
+  } > "$USER_ROLE_TEMPLATE_DIR/$id.md.tmp"
+  mv "$USER_ROLE_TEMPLATE_DIR/$id.md.tmp" "$USER_ROLE_TEMPLATE_DIR/$id.md"
+  rm -f "$tmp"
+}
+
+ensure_role_template_available() {
+  local template="$1" policy="${2:-local}" source_url="${3:-}" ref="${4:-$BMAD_DEFAULT_REF}" id base
+  id="$(canonical_role_template_id "$template")" || return 1
+  role_template_file "$id" >/dev/null 2>&1 && return 0
+  [[ "$policy" == "auto" || "$policy" == "strict" ]] || return 0
+  is_bmad_template_id "$id" || return 0
+  base="$(bmad_source_base "$source_url" "$ref")"
+  if sync_bmad_template "$id" "$base" "$ref"; then
+    return 0
+  fi
+  [[ "$policy" == "strict" ]] && die "failed to fetch required BMAD template: $id from $base"
+  err "warning: failed to fetch BMAD template $id from $base; using bundled fallback"
+}
+
 role_template_body() {
   local id
   id="$(canonical_role_template_id "${1:-}")" || return 1
@@ -498,7 +616,7 @@ EOF
 write_bmad_role_templates() {
   local dir="$1" source_note="${2:-BMAD Method default BMM agent catalog.}" id
   mkdir -p "$dir"
-  for id in bmad-agent-dev bmad-analyst bmad-architect bmad-pm bmad-tech-writer bmad-ux-designer; do
+  for id in $(bmad_template_ids); do
     role_template_body "$id" | sed "s|^Source: .*|Source: $source_note|" > "$dir/$id.md"
   done
 }
@@ -534,33 +652,45 @@ cmd_roles() {
       ;;
     sync)
       shift || true
-      local source="${1:-bmad}" url="https://docs.bmad-method.org/reference/agents/" yes=0 offline=0 content=""
-      [[ "$source" == "bmad" ]] || die "usage: agentdock roles sync bmad [--yes] [--offline] [--url <url>]"
+      local source="${1:-bmad}" url="" ref="$BMAD_DEFAULT_REF" yes=0 offline=0 best_effort=0 synced=0 failed=0 id base
+      [[ "$source" == "bmad" ]] || die "usage: agentdock roles sync bmad [--yes] [--offline] [--source github] [--ref <ref>] [--url <url>] [--best-effort]"
       shift || true
       while [[ $# -gt 0 ]]; do
         case "$1" in
           --yes) yes=1; shift ;;
           --offline) offline=1; shift ;;
+          --source) source="${2:-github}"; shift 2 ;;
+          --ref) ref="${2:-$ref}"; shift 2 ;;
           --url) url="${2:-$url}"; shift 2 ;;
+          --best-effort) best_effort=1; shift ;;
           *) shift ;;
         esac
       done
+      [[ "$source" == "bmad" || "$source" == "github" ]] || die "unsupported BMAD source: $source"
       if [[ "$yes" != 1 ]]; then
         read -r -p "Sync BMAD role templates into $USER_ROLE_TEMPLATE_DIR? [y/N] " answer
         [[ "$answer" == "y" || "$answer" == "Y" ]] || die "cancelled"
       fi
       if [[ "$offline" != 1 ]]; then
-        have curl || die "curl is required for BMAD sync. Rerun with --offline to install bundled templates."
-        content="$(curl -fsSL "$url")" || die "failed to fetch BMAD agents from $url"
-        printf '%s' "$content" | grep -q 'bmad-agent-dev' || die "BMAD source did not contain expected agent IDs: $url"
-        write_bmad_role_templates "$USER_ROLE_TEMPLATE_DIR" "Bundled BMAD fallback after remote availability check: $url"
+        base="$(bmad_source_base "$url" "$ref")"
+        for id in $(bmad_template_ids); do
+          if sync_bmad_template "$id" "$base" "$ref"; then
+            synced=$((synced + 1))
+          else
+            err "failed to sync BMAD template: $id from $base"
+            failed=$((failed + 1))
+          fi
+        done
+        if (( failed > 0 && best_effort != 1 )); then
+          die "failed to sync $failed BMAD template(s) from $base. Rerun with --offline for bundled fallbacks or --best-effort to keep partial results."
+        fi
       else
         write_bmad_role_templates "$USER_ROLE_TEMPLATE_DIR" "Bundled BMAD fallback"
       fi
       if [[ "$offline" == 1 ]]; then
         say "Installed bundled BMAD role templates to $USER_ROLE_TEMPLATE_DIR"
       else
-        say "Verified BMAD source and installed bundled BMAD-compatible templates to $USER_ROLE_TEMPLATE_DIR"
+        say "Synced $synced BMAD role template(s) to $USER_ROLE_TEMPLATE_DIR"
       fi
       ;;
     *) die "usage: agentdock roles list|sync bmad" ;;
@@ -1051,8 +1181,9 @@ EOF
 }
 
 write_template_role_prompt() {
-  local root="$1" id="$2" display="$3" template="$4" mission="$5" instructions="$6"
+  local root="$1" id="$2" display="$3" template="$4" mission="$5" instructions="$6" template_policy="${7:-local}" source_url="${8:-}" ref="${9:-$BMAD_DEFAULT_REF}"
   local file="$root/.agentdock/prompts/$id.md" template_file
+  ensure_role_template_available "$template" "$template_policy" "$source_url" "$ref"
   template_file="$(role_template_file "$template" || true)"
   [[ -n "$template_file" ]] || role_template_body "$template" >/dev/null || die "unknown role template: $template. Run: agentdock roles list"
   {
@@ -1069,6 +1200,7 @@ write_template_role_prompt() {
       [[ -n "$instructions" ]] && printf '\nInstructions: %s\n' "$instructions"
     fi
   } > "$file"
+  return 0
 }
 
 generate_boot_prompt() {
@@ -1304,7 +1436,7 @@ cmd_assign() {
 }
 
 recruit_role() {
-  local root="$1" role="$2" cli="$3" display="$4" mission="$5" instructions="$6" skip_missing="$7" template="${8:-}"
+  local root="$1" role="$2" cli="$3" display="$4" mission="$5" instructions="$6" skip_missing="$7" template="${8:-}" template_policy="${9:-local}" source_url="${10:-}" ref="${11:-$BMAD_DEFAULT_REF}"
   cli="$(resolved_cli "$cli")"
   local run_cmd="$(resolved_cli_cmd "$cli")"
   if ! role_exists "$root" "$role"; then
@@ -1317,7 +1449,7 @@ recruit_role() {
     write_runtime "$root" "$PROJECT_NAME" "$SESSION_NAME" "$LAYOUT" "$AGENT_IDS $role"
     [[ "${AGENTDOCK_BATCH_RECRUIT:-0}" == 1 ]] || regenerate_all "$root"
     if [[ -n "$template" ]]; then
-      write_template_role_prompt "$root" "$role" "${display:-$role}" "$template" "$mission" "$instructions"
+      write_template_role_prompt "$root" "$role" "${display:-$role}" "$template" "$mission" "$instructions" "$template_policy" "$source_url" "$ref"
       [[ "${AGENTDOCK_BATCH_RECRUIT:-0}" == 1 ]] || generate_boot_prompt "$root" "$role"
     elif [[ -n "$mission" || -n "$instructions" ]]; then
       write_custom_role_prompt "$root" "$role" "${display:-$role}" "${mission:-Execute the responsibilities assigned to this role by the orchestrator.}" "$instructions"
@@ -1325,7 +1457,7 @@ recruit_role() {
     fi
     say "Recruited role: $role -> $cli"
   elif [[ -n "$template" ]]; then
-    write_template_role_prompt "$root" "$role" "${display:-$role}" "$template" "$mission" "$instructions"
+    write_template_role_prompt "$root" "$role" "${display:-$role}" "$template" "$mission" "$instructions" "$template_policy" "$source_url" "$ref"
     [[ "${AGENTDOCK_BATCH_RECRUIT:-0}" == 1 ]] || generate_boot_prompt "$root" "$role"
     say "Updated role prompt: $role"
   elif [[ -n "$mission" || -n "$instructions" ]]; then
@@ -1382,7 +1514,7 @@ recruit_role() {
 }
 
 cmd_recruit() {
-  local root cli="" display="" mission="" instructions="" template="" skip_missing=0
+  local root cli="" display="" mission="" instructions="" template="" skip_missing=0 template_policy="local" source_url="" ref="$BMAD_DEFAULT_REF"
   root="$(require_project "$@")"
   local -a roles=() unique_roles=()
   local -A seen
@@ -1394,6 +1526,10 @@ cmd_recruit() {
       --mission) mission="${2:-}"; shift 2 ;;
       --instructions) instructions="${2:-}"; shift 2 ;;
       --skip-missing) skip_missing=1; shift ;;
+      --sync-template) template_policy="auto"; shift ;;
+      --require-template) template_policy="strict"; shift ;;
+      --template-url) source_url="${2:-}"; shift 2 ;;
+      --template-ref) ref="${2:-$ref}"; shift 2 ;;
       --project) shift 2 ;;
       --project=*) shift ;;
       --*) shift ;;
@@ -1415,11 +1551,14 @@ cmd_recruit() {
   done
 
   detect_adapter_cached "$DEFAULT_AGENT_CLI" >/dev/null || true
+  if [[ "$template_policy" == "local" && "${AGENTDOCK_BMAD_AUTO_SYNC:-0}" == 1 ]]; then
+    template_policy="auto"
+  fi
   AGENTDOCK_LAUNCHED_PAIRS=()
   AGENTDOCK_DEFER_BOOT=1
   AGENTDOCK_BATCH_RECRUIT=1
   for token in "${unique_roles[@]}"; do
-    recruit_role "$root" "$token" "$cli" "$display" "$mission" "$instructions" "$skip_missing" "$template"
+    recruit_role "$root" "$token" "$cli" "$display" "$mission" "$instructions" "$skip_missing" "$template" "$template_policy" "$source_url" "$ref"
   done
   AGENTDOCK_BATCH_RECRUIT=0
   regenerate_all "$root"
