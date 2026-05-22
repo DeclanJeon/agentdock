@@ -17,6 +17,7 @@ grep -q 'No direct mutation of `.agent-work/07_JOBS/CURRENT.md`' "$DOC" || fail 
 grep -q 'agentdock job followup --message <text>' "$DOC" || fail "Lane E dedicated followup command missing"
 grep -q 'Rejected:' "$DOC" || fail "rejected alternatives missing"
 grep -q 'No arbitrary shell UI bridge' "$DOC" || fail "arbitrary shell safety constraint missing"
+grep -q 'does \*\*not\*\* claim the Visual Workspace is release-ready' "$DOC" || fail "release-ready non-claim missing"
 grep -q 'releaseProof=true' "$DOC" || fail "releaseProof release gate missing"
 grep -q 'Commit candidates for this slice are source docs and tests only' "$DOC" || fail "Lane F commit hygiene split missing"
 grep -q 'history` must be optional and backward-compatible' "$DOC" || fail "optional history compatibility rule missing"
@@ -39,6 +40,9 @@ if expected not in compact:
 for forbidden in ['job_followup', 'job_finish', 'job_report', 'broadcast', 'recruit', 'write_file', 'remove_file']:
     if forbidden in prod:
         raise SystemExit(f'forbidden production bridge token found: {forbidden}')
+for shell_token in ['sh -c', 'bash -c', '/bin/sh', '/bin/bash']:
+    if shell_token in prod:
+        raise SystemExit(f'forbidden production shell token found: {shell_token}')
 PY
 
 echo "workspace history/followup design ok"
