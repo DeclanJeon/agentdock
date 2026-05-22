@@ -33,7 +33,7 @@ if os.path.exists(manifest_path):
         existing_manifest = {"schema": "unreadable"}
 output_job_match = re.search(r"/(JOB-[A-Za-z0-9][A-Za-z0-9_-]*)/OUTPUTS/", abs_out_dir)
 output_job_id = output_job_match.group(1) if output_job_match else "unknown"
-job_consistent = output_job_id == "unknown" or job_id == "unknown" or output_job_id == job_id
+job_consistent = output_job_id == "unknown" or output_job_id == job_id
 required = [
   "live-normal", "missing-reports", "blocker-present", "final-ready",
   "dense-20", "dense-50-search-filter", "stale-last-good", "demo-fallback",
