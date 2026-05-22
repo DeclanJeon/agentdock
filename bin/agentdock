@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-AGENTDOCK_VERSION="0.1.8"
+AGENTDOCK_VERSION="0.2.0"
 DEFAULT_AGENT_CLI="hermes"
 CLI_NAME="$(basename "$0")"
 SCRIPT_PATH="${BASH_SOURCE[0]}"
@@ -208,10 +208,11 @@ Commands:
   broadcast "..."         Send one shared message to every configured role
   inbox [role]            Show recent inbox and broadcast messages
   watch <role>            Poll a role inbox for unread messages
-  workspace snapshot --json|export --out <file>  Render read-only visual workspace state
+  workspace snapshot --json|export --out <file>|app  Render visual workspace state
   report                  Summarize project state
   workspace snapshot --json       Print read-only Visual Office state JSON
   workspace export --out <file>   Write a static Visual Office HTML file
+  workspace app [--project <path>] Launch the AgentDock Visual Office desktop app
   update                  Print update guidance
   uninstall               Print uninstall guidance
 EOF
@@ -294,13 +295,22 @@ After install, reload your shell and verify:
 EOF
 }
 
+adapter_version_sample() {
+  local path="$1" limit="${AGENTDOCK_ADAPTER_VERSION_TIMEOUT:-3s}"
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$limit" "$path" --version </dev/null 2>/dev/null | head -1 || true
+  else
+    "$path" --version </dev/null 2>/dev/null | head -1 || true
+  fi
+}
+
 detect_adapter() {
   local id="$1" bin path version="missing"
   load_adapter "$id" || return 1
   for bin in $ADAPTER_BINARIES; do
     if path="$(command -v "$bin" 2>/dev/null)"; then
       version=""
-      version="$("$path" --version 2>/dev/null | head -1 || true)"
+      version="$(adapter_version_sample "$path")"
       printf '%s\tinstalled\t%s\t%s\n' "$id" "$path" "${version:-unknown}"
       return 0
     fi
@@ -3179,7 +3189,7 @@ workspace_snapshot_json() {
     done < <(find "$job_dir/REPORTS" -maxdepth 1 -type f -name '*.md' ! -name '*-final.md' 2>/dev/null | sort)
   fi
   printf '],\n'
-  printf '  "commands": {"mode":"read-only", "write_bridge_enabled": false, "allowed_read_commands":["agentdock team","agentdock report --fast","agentdock inbox <role>","agentdock workspace snapshot --json"]},\n'
+  printf '  "commands": {"mode":"controlled-actions", "write_bridge_enabled": false, "allowed_read_commands":["agentdock team","agentdock report --fast","agentdock inbox <role>","agentdock workspace snapshot --json"], "allowed_actions":["agentdock job --no-attach"]},\n'
   printf '  "support": {"linux":"supported", "macos":"supported with Bash 4+ and tmux", "windows":"WSL-only/unsupported native"},\n'
   printf '  "org": {"model": "CEO -> department bay -> role", "zones": ['
   local zones=("CEO Office" "Product Bay" "Engineering Bay" "Quality Bay" "Delivery Bay" "Blocker Desk" "Report Desk")
@@ -3381,9 +3391,21 @@ warnings = data.get("warnings", [])
 if alerts or warnings:
     parts.append('<ul class="desk-list">')
     for item in alerts:
-        parts.append(f'<li>{esc(item.get("message", item))}</li>')
+        if isinstance(item, dict):
+            message = item.get("message") or item.get("summary") or item.get("type") or "Workspace alert"
+            meta = " · ".join(str(item.get(key)) for key in ("severity", "type", "role", "owner") if item.get(key))
+            label = f"{meta}: {message}" if meta else str(message)
+        else:
+            label = str(item)
+        parts.append(f'<li>{esc(label)}</li>')
     for item in warnings:
-        parts.append(f'<li>{esc(item)}</li>')
+        if isinstance(item, dict):
+            message = item.get("message") or item.get("summary") or item.get("type") or "Workspace warning"
+            meta = " · ".join(str(item.get(key)) for key in ("severity", "type", "role", "owner") if item.get(key))
+            label = f"{meta}: {message}" if meta else str(message)
+        else:
+            label = str(item)
+        parts.append(f'<li>{esc(label)}</li>')
     parts.append('</ul>')
 else:
     parts.append('<p class="muted">No blockers or warnings.</p>')
@@ -3400,6 +3422,42 @@ out.write_text("\n".join(parts), encoding="utf-8")
 PY
   rm -f "$tmp"
   say "Workspace export: $out"
+}
+
+cmd_workspace_app() {
+  local root="$1"
+  shift || true
+  case "${1:-}" in
+    --help|-h|help)
+      cat <<EOF
+Usage: agentdock workspace app [--project <path>]
+
+Launch the AgentDock Visual Office desktop application.
+
+Preferred installed binary:
+  agentdock-workspace --project "$root"
+
+Development fallback from the AgentDock repository:
+  npm run tauri:dev -- -- --project "$root"
+
+The desktop app reads AgentDock state through:
+  agentdock workspace snapshot --json --project "$root"
+EOF
+      return 0
+      ;;
+  esac
+
+  if command -v agentdock-workspace >/dev/null 2>&1; then
+    exec agentdock-workspace --project "$root"
+  fi
+
+  if [[ -f "$INSTALL_ROOT/package.json" && -d "$INSTALL_ROOT/src-tauri" ]]; then
+    cd "$INSTALL_ROOT"
+    export AGENTDOCK_BIN="$INSTALL_ROOT/bin/agentdock"
+    exec npm run tauri:dev -- -- --project "$root"
+  fi
+
+  die "agentdock-workspace binary not found and Tauri source is unavailable; run from the AgentDock repo or build/install the desktop app"
 }
 
 cmd_workspace() {
@@ -3422,7 +3480,10 @@ cmd_workspace() {
       done
       workspace_export_html "$root" "$out"
       ;;
-    *) die "usage: agentdock workspace snapshot --json | workspace export --out <file>" ;;
+    app)
+      cmd_workspace_app "$root" "$@"
+      ;;
+    *) die "usage: agentdock workspace snapshot --json | workspace export --out <file> | workspace app" ;;
   esac
 }
 

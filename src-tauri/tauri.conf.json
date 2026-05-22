@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "AgentDock Visual Office",
+  "version": "0.2.0",
+  "identifier": "com.agentdock.visualoffice",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "AgentDock Visual Office",
+        "width": 1440,
+        "height": 920,
+        "minWidth": 980,
+        "minHeight": 720,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["appimage", "deb"],
+    "icon": ["icons/icon.png"],
+    "category": "DeveloperTool",
+    "shortDescription": "Pixel office workspace for AgentDock teams",
+    "longDescription": "AgentDock Visual Office is a local desktop app that reads AgentDock workspace snapshots and renders a pixel office map for team/job state."
+  }
+}

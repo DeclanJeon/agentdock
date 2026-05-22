@@ -10,3 +10,8 @@ bin/.omx/
 *.log
 *.tmp
 .DS_Store
+
+node_modules/
+dist/
+tsconfig.tsbuildinfo
+src-tauri/target/
