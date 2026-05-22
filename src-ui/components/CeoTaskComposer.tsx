@@ -40,41 +40,44 @@ export function CeoTaskComposer({ onCreateJob, refreshStatus = 'idle', lastRefre
   }
 
   return (
-    <section className={expanded ? 'ceo-task-composer expanded' : 'ceo-task-composer compact'} aria-label="CEO task composer">
-      <div className="composer-copy">
-        <p className="eyebrow">Controlled action</p>
-        <h2>Send work to CEO</h2>
-        <p id="ceo-task-trust" className="trust-copy">Creates a CEO-led job only · no arbitrary shell · duplicate submit locked.</p>
+    <section className="ceo-task-composer" aria-label="CEO task composer">
+      <div className="composer-header">
+        <div className="composer-copy">
+          <p className="eyebrow">Controlled action</p>
+          <h2>CEO에게 작업 주기 / Send work to CEO</h2>
+        </div>
+        <p className="composer-safety-copy">Creates a CEO-led AgentDock job only. No arbitrary shell, recruit, send, finish, report, or task-edit controls.</p>
       </div>
-      <div className="composer-entry">
+      <div className="composer-request-row">
         <label className="composer-input-label" htmlFor="ceo-task-request">
-          CEO task request
+          CEO TASK REQUEST
         </label>
         <textarea
           id="ceo-task-request"
           value={request}
           maxLength={MAX_CEO_TASK_CHARS}
           onChange={(event) => setRequest(event.target.value)}
-          placeholder="Describe the CEO-led work..."
+          placeholder="Describe the work for the CEO to analyze, recruit, assign, and facilitate..."
           aria-describedby="ceo-task-validation ceo-task-trust"
           disabled={inFlight}
-          rows={expanded ? 3 : 1}
+          rows={3}
         />
+        <div className="composer-actions">
+          <span id="ceo-task-validation" className={validation.ok ? 'composer-validation ok' : 'composer-validation warn'}>
+            {validation.ok ? `${request.trim().length}/${MAX_CEO_TASK_CHARS} characters` : validation.message}
+          </span>
+          <button type="button" onClick={submit} disabled={!canSubmit}>
+            {inFlight ? 'Sending to CEO…' : 'Send to CEO'}
+          </button>
+        </div>
       </div>
-      <div className="composer-actions">
-        <span id="ceo-task-validation" className={validation.ok ? 'composer-validation ok' : 'composer-validation warn'}>
-          {validation.ok ? `${request.trim().length}/${MAX_CEO_TASK_CHARS}` : validation.message}
-        </span>
-        <button type="button" className="composer-expand-button" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
-          {expanded ? 'Collapse' : 'Expand'}
-        </button>
-        <button type="button" onClick={submit} disabled={!canSubmit}>
-          {inFlight ? 'Sending…' : 'Send to CEO'}
-        </button>
+      <div className="composer-status-row">
+        <p id="ceo-task-trust" className="trust-copy">Controlled action · creates a CEO-led job only · no arbitrary shell · duplicate submit locked while sending</p>
+        <p className={`snapshot-refresh-state state-${refreshStatus}`} aria-live="polite">
+          Snapshot refresh after create: {refreshStatus}
+          {lastRefreshAt ? ` · last refreshed ${new Date(lastRefreshAt).toLocaleTimeString()}` : ''}
+        </p>
       </div>
-      <p className={`snapshot-refresh-state state-${refreshStatus}`} aria-live="polite">
-        Refresh after create: {refreshStatus}{lastRefreshAt ? ` · ${new Date(lastRefreshAt).toLocaleTimeString()}` : ''}
-      </p>
       {result ? (
         <div className={result.ok ? 'composer-result success' : 'composer-result failure'} role="status" aria-live="polite">
           {result.ok ? (
