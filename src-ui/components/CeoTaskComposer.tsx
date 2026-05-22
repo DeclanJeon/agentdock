@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { jobCreateErrorMessage, MAX_CEO_TASK_CHARS, validateCeoTaskRequest, type JobCreateResult } from '../model/actions';
 
 interface CeoTaskComposerProps {
@@ -10,12 +10,14 @@ interface CeoTaskComposerProps {
 export function CeoTaskComposer({ onCreateJob, refreshStatus = 'idle', lastRefreshAt = null }: CeoTaskComposerProps) {
   const [request, setRequest] = useState('');
   const [inFlight, setInFlight] = useState(false);
+  const submitInFlightRef = useRef(false);
   const [result, setResult] = useState<JobCreateResult | null>(null);
   const validation = useMemo(() => validateCeoTaskRequest(request), [request]);
-  const canSubmit = validation.ok && !inFlight;
+  const canSubmit = validation.ok && !inFlight && !submitInFlightRef.current;
 
   async function submit() {
-    if (!canSubmit) return;
+    if (!canSubmit || submitInFlightRef.current) return;
+    submitInFlightRef.current = true;
     setInFlight(true);
     setResult(null);
     try {
@@ -31,6 +33,7 @@ export function CeoTaskComposer({ onCreateJob, refreshStatus = 'idle', lastRefre
         message: error instanceof Error ? error.message : String(error),
       });
     } finally {
+      submitInFlightRef.current = false;
       setInFlight(false);
     }
   }

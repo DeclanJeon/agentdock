@@ -66,8 +66,8 @@ export default function App() {
     window.localStorage.setItem('agentdock.visualWorkspaceMode', nextMode);
   }, []);
 
-  const loadSnapshot = useCallback(async () => {
-    if (refreshInFlightRef.current) return;
+  const loadSnapshot = useCallback(async (): Promise<boolean> => {
+    if (refreshInFlightRef.current) return false;
     refreshInFlightRef.current = true;
     setRefreshInFlight(true);
     try {
@@ -82,7 +82,7 @@ export default function App() {
             setSnapshot(demoSnapshot);
             setSelectedRole(demoSnapshot.roles?.[0]);
           }
-          return;
+          return false;
         }
         setSnapshot(result.parsed);
         lastGoodSnapshotRef.current = result.parsed;
@@ -91,6 +91,7 @@ export default function App() {
         setMode('live');
         setError(null);
         setLastUpdatedAt(new Date().toISOString());
+        return true;
       } else {
         const previousGoodSnapshot = lastGoodSnapshotRef.current;
         const message = snapshotErrorMessage(result);
@@ -100,6 +101,7 @@ export default function App() {
           setSnapshot(demoSnapshot);
           setSelectedRole(demoSnapshot.roles?.[0]);
         }
+        return false;
       }
     } catch (err) {
       const previousGoodSnapshot = lastGoodSnapshotRef.current;
@@ -107,9 +109,10 @@ export default function App() {
       setError(message);
       setMode(previousGoodSnapshot ? 'stale' : 'error');
       if (!previousGoodSnapshot) {
-        setSnapshot(demoSnapshot);
-        setSelectedRole(demoSnapshot.roles?.[0]);
-      }
+          setSnapshot(demoSnapshot);
+          setSelectedRole(demoSnapshot.roles?.[0]);
+        }
+      return false;
     } finally {
       refreshInFlightRef.current = false;
       setRefreshInFlight(false);
@@ -136,12 +139,8 @@ export default function App() {
     setAuditEvents((events) => events.map((event) => event.id === attempt.id ? completeJobCreateAudit(event, result) : event));
     if (result.ok) {
       setLastCreateRefreshStatus('pending');
-      try {
-        await loadSnapshot();
-        setLastCreateRefreshStatus('succeeded');
-      } catch (_error) {
-        setLastCreateRefreshStatus('failed');
-      }
+      const refreshed = await loadSnapshot();
+      setLastCreateRefreshStatus(refreshed ? 'succeeded' : 'failed');
     }
     return result;
   }, [loadSnapshot]);
