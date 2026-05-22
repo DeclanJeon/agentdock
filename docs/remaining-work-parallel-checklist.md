@@ -72,9 +72,10 @@
 
 ## Parallel assignment
 
-- Worker 1: Lane A release proof / matrix.
-- Worker 2: Lane B monitoring UI stabilization.
-- Worker 3: Lane C composer/concurrency hardening.
-- Worker 4: Lane D history/inspector design and low-risk tests.
-- Worker 5: Lane E controlled intervention architecture for CEO follow-up.
-- Worker 6: Lane F commit/release hygiene and final synthesis.
+Current OMX run split:
+
+- Worker 1: Lane A release proof / matrix plus P0 evidence blockers.
+- Worker 2: Lane B monitoring UI stabilization plus Lane C CEO composer/concurrency hardening.
+- Worker 3: Lane D history/inspector design/tests plus Lane E CEO follow-up controlled-action architecture and Lane F commit/release hygiene synthesis.
+
+Historical six-worker split is superseded for this run; do not use stale owner rows as release evidence.

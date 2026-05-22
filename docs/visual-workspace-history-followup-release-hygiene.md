@@ -33,6 +33,8 @@ Rejected:
 
 ### Proposed snapshot fields
 
+`history` must be optional and backward-compatible while `schema_version` remains `workspace.snapshot.v1`. Existing fixtures and clients without history support must continue to parse snapshots successfully; absence of `history` means the UI shows no previous-job switcher instead of entering an error state.
+
 ```json
 {
   "history": {
@@ -138,6 +140,8 @@ Result handling:
 4. Submit via fixed argv bridge.
 5. Show result and append action audit event.
 6. Refresh snapshot.
+
+Disabled states must be explicit: no active job, stale/error snapshot, empty message, overlong message, in-flight submit, duplicate submit, and refresh overlap all keep the bridge disabled with safe copy.
 
 ### Required future regression evidence
 
