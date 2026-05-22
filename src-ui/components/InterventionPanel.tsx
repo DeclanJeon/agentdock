@@ -9,12 +9,15 @@ export function InterventionPanel({ snapshot }: { snapshot: WorkspaceSnapshot })
   const selected = selectedRoles(snapshot);
   const finishReady = Boolean(snapshot.job?.final_ready);
   return (
-    <section className="intervention-panel" aria-label="Controlled intervention console">
-      <div>
-        <p className="eyebrow">개입 콘솔</p>
-        <h2>Safe Intervention Console</h2>
-        <p>직접 finish/task edit은 열지 않습니다. 현재 slice는 작업 생성과 안전한 preview/readiness 안내만 제공합니다.</p>
-      </div>
+    <details className="intervention-panel auxiliary-panel" aria-label="Controlled intervention console">
+      <summary>
+        <span>
+          <p className="eyebrow">Intervention</p>
+          <strong>Safe Intervention Console</strong>
+        </span>
+        <em>{finishReady ? 'ready guidance' : 'read-only guidance'}</em>
+      </summary>
+      <p>직접 finish/task edit은 열지 않습니다. 현재 slice는 작업 생성과 안전한 preview/readiness 안내만 제공합니다.</p>
       <div className="intervention-grid">
         <article>
           <h3>CEO follow-up</h3>
@@ -51,6 +54,6 @@ export function InterventionPanel({ snapshot }: { snapshot: WorkspaceSnapshot })
           )}
         </article>
       </div>
-    </section>
+    </details>
   );
 }

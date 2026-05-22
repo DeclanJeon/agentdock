@@ -38,6 +38,19 @@ function unsupportedSchemaMessage(snapshot: WorkspaceSnapshot): string {
 
 type SnapshotRefreshOutcome = 'succeeded' | 'failed' | 'skipped';
 
+
+function SecurityStatusStrip({ snapshot, mode }: { snapshot: WorkspaceSnapshot; mode: WorkspaceMode }) {
+  const readOnlyMode = snapshot.commands?.mode ?? 'read-only';
+  const allowedActions = snapshot.commands?.allowed_actions ?? [];
+  return (
+    <aside className="security-status-strip" aria-label="Read-only security and action boundary">
+      <span><strong>Mode</strong>{mode}</span>
+      <span><strong>Snapshot</strong>{readOnlyMode}</span>
+      <span><strong>Allowed action</strong>{allowedActions.length ? allowedActions.join(', ') : 'none'}</span>
+    </aside>
+  );
+}
+
 function ErrorStrip({ mode, error, lastUpdatedAt }: { mode: WorkspaceMode; error: string | null; lastUpdatedAt: string | null }) {
   if (!error) return null;
   const prefix = mode === 'stale' ? 'Showing last-good snapshot' : 'Live snapshot unavailable';
@@ -149,26 +162,27 @@ export default function App() {
 
   return (
     <div className={`app-shell mode-${mode}`}>
-      <TopHud snapshot={snapshot} mode={mode} />
-      <div className="refresh-row" aria-label="Snapshot refresh controls">
-        <button type="button" onClick={loadSnapshot} disabled={refreshInFlight}>
-          {refreshInFlight ? 'Refreshing snapshot…' : 'Refresh snapshot'}
-        </button>
-        <span>{lastUpdatedAt ? `Last refresh: ${new Date(lastUpdatedAt).toLocaleTimeString()}` : 'Waiting for first live refresh'}</span>
-        <div className="visual-mode-switch" aria-label="Visual workspace render mode">
-          <button type="button" className={visualMode === 'pixelOffice' ? 'active' : ''} onClick={() => switchVisualMode('pixelOffice')}>
-            Pixel Office
+      <TopHud snapshot={snapshot} />
+      <ErrorStrip mode={mode} error={error} lastUpdatedAt={lastUpdatedAt} />
+      <div className="workspace-command-strip" aria-label="Compact command and status controls">
+        <CeoTaskComposer onCreateJob={createCeoJob} refreshStatus={lastCreateRefreshStatus} lastRefreshAt={lastUpdatedAt} />
+        <FacilitationTimeline snapshot={snapshot} mode={mode} />
+        <div className="refresh-row" aria-label="Snapshot refresh controls">
+          <button type="button" onClick={loadSnapshot} disabled={refreshInFlight}>
+            {refreshInFlight ? 'Refreshing…' : 'Refresh snapshot'}
           </button>
-          <button type="button" className={visualMode === 'classic' ? 'active' : ''} onClick={() => switchVisualMode('classic')}>
-            Classic
-          </button>
+          <span>{lastUpdatedAt ? `Last refresh: ${new Date(lastUpdatedAt).toLocaleTimeString()}` : 'Waiting for live refresh'}</span>
+          <div className="visual-mode-switch" aria-label="Visual workspace render mode">
+            <button type="button" className={visualMode === 'pixelOffice' ? 'active' : ''} onClick={() => switchVisualMode('pixelOffice')}>
+              Pixel Office
+            </button>
+            <button type="button" className={visualMode === 'classic' ? 'active' : ''} onClick={() => switchVisualMode('classic')}>
+              Classic
+            </button>
+          </div>
+          <SecurityStatusStrip snapshot={snapshot} mode={mode} />
         </div>
       </div>
-      <ErrorStrip mode={mode} error={error} lastUpdatedAt={lastUpdatedAt} />
-      <CeoTaskComposer onCreateJob={createCeoJob} refreshStatus={lastCreateRefreshStatus} lastRefreshAt={lastUpdatedAt} />
-      <FacilitationTimeline snapshot={snapshot} mode={mode} />
-      <ActionAuditPanel events={auditEvents} />
-      <InterventionPanel snapshot={snapshot} />
       {visualMode === 'pixelOffice' ? (
         <OfficeScene snapshot={snapshot} mode={mode} selectedRoleId={selectedRole?.id} onSelectRole={setSelectedRole} />
       ) : (
@@ -177,6 +191,10 @@ export default function App() {
           <Inspector snapshot={snapshot} role={selectedRole} />
         </div>
       )}
+      <section className="auxiliary-panels" aria-label="Collapsed audit and intervention drawers">
+        <ActionAuditPanel events={auditEvents} />
+        <InterventionPanel snapshot={snapshot} />
+      </section>
     </div>
   );
 }
