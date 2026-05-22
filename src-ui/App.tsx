@@ -36,6 +36,8 @@ function unsupportedSchemaMessage(snapshot: WorkspaceSnapshot): string {
   return `Unsupported snapshot schema: ${observedSchema(snapshot)}. Expected ${SUPPORTED_SCHEMA_VERSION}.`;
 }
 
+type SnapshotRefreshOutcome = 'succeeded' | 'failed' | 'skipped';
+
 function ErrorStrip({ mode, error, lastUpdatedAt }: { mode: WorkspaceMode; error: string | null; lastUpdatedAt: string | null }) {
   if (!error) return null;
   const prefix = mode === 'stale' ? 'Showing last-good snapshot' : 'Live snapshot unavailable';
@@ -66,8 +68,8 @@ export default function App() {
     window.localStorage.setItem('agentdock.visualWorkspaceMode', nextMode);
   }, []);
 
-  const loadSnapshot = useCallback(async (): Promise<boolean> => {
-    if (refreshInFlightRef.current) return false;
+  const loadSnapshot = useCallback(async (): Promise<SnapshotRefreshOutcome> => {
+    if (refreshInFlightRef.current) return 'skipped';
     refreshInFlightRef.current = true;
     setRefreshInFlight(true);
     try {
@@ -82,7 +84,7 @@ export default function App() {
             setSnapshot(demoSnapshot);
             setSelectedRole(demoSnapshot.roles?.[0]);
           }
-          return false;
+          return 'failed';
         }
         setSnapshot(result.parsed);
         lastGoodSnapshotRef.current = result.parsed;
@@ -91,7 +93,7 @@ export default function App() {
         setMode('live');
         setError(null);
         setLastUpdatedAt(new Date().toISOString());
-        return true;
+        return 'succeeded';
       } else {
         const previousGoodSnapshot = lastGoodSnapshotRef.current;
         const message = snapshotErrorMessage(result);
@@ -101,7 +103,7 @@ export default function App() {
           setSnapshot(demoSnapshot);
           setSelectedRole(demoSnapshot.roles?.[0]);
         }
-        return false;
+        return 'failed';
       }
     } catch (err) {
       const previousGoodSnapshot = lastGoodSnapshotRef.current;
@@ -112,7 +114,7 @@ export default function App() {
           setSnapshot(demoSnapshot);
           setSelectedRole(demoSnapshot.roles?.[0]);
         }
-      return false;
+      return 'failed';
     } finally {
       refreshInFlightRef.current = false;
       setRefreshInFlight(false);
@@ -139,8 +141,8 @@ export default function App() {
     setAuditEvents((events) => events.map((event) => event.id === attempt.id ? completeJobCreateAudit(event, result) : event));
     if (result.ok) {
       setLastCreateRefreshStatus('pending');
-      const refreshed = await loadSnapshot();
-      setLastCreateRefreshStatus(refreshed ? 'succeeded' : 'failed');
+      const refreshOutcome = await loadSnapshot();
+      setLastCreateRefreshStatus(refreshOutcome === 'succeeded' ? 'succeeded' : refreshOutcome === 'failed' ? 'failed' : 'pending');
     }
     return result;
   }, [loadSnapshot]);

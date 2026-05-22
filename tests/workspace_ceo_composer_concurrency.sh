@@ -20,8 +20,9 @@ grep -q "Snapshot refresh after create: {refreshStatus}" src-ui/components/CeoTa
 grep -q "'pending'" src-ui/App.tsx || fail "post-create refresh pending state missing"
 grep -q "'succeeded'" src-ui/App.tsx || fail "post-create refresh succeeded state missing"
 grep -q "'failed'" src-ui/App.tsx || fail "post-create refresh failed state missing"
-grep -q 'refreshInFlightRef.current) return false' src-ui/App.tsx || fail "refresh-overlap skip must not be reported as success"
-grep -q 'setLastCreateRefreshStatus(refreshed ?' src-ui/App.tsx || fail "refresh result must drive succeeded/failed state"
+grep -q "SnapshotRefreshOutcome = 'succeeded' | 'failed' | 'skipped'" src-ui/App.tsx || fail "explicit refresh outcome contract missing"
+grep -q "refreshInFlightRef.current) return 'skipped'" src-ui/App.tsx || fail "refresh-overlap skip must be distinct from failure"
+grep -q "refreshOutcome === 'succeeded'" src-ui/App.tsx || fail "refresh result must drive succeeded/failed/pending state"
 grep -q 'jobCreateErrorMessage' src-ui/components/CeoTaskComposer.tsx || fail "failure message must use redacted/actionable formatter"
 if grep -E "invoke<.*\('(recruit|broadcast|finish|report|task|send)'" src-ui/App.tsx src-ui/components/CeoTaskComposer.tsx; then
   fail "CEO composer must not expose non-job-create action bridges"
