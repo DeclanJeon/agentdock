@@ -27,6 +27,25 @@ grep -q "visualMode === 'pixelOffice'" src-ui/App.tsx || fail "App must mount Of
 grep -q 'classic-workspace-layout' src-ui/App.tsx || fail "classic fallback path missing"
 grep -q 'agentdock.visualWorkspaceMode' src-ui/App.tsx || fail "visual mode must be local UI state only"
 
+python3 - <<'PY'
+from pathlib import Path
+app = Path('src-ui/App.tsx').read_text(encoding='utf-8')
+scene_idx = app.find('<OfficeScene')
+classic_idx = app.find('classic-workspace-layout')
+if scene_idx < 0:
+    raise SystemExit('OfficeScene render call missing')
+for marker in ['<CeoTaskComposer', '<FacilitationTimeline', '<ActionAuditPanel', '<InterventionPanel']:
+    idx = app.find(marker)
+    if idx >= 0 and idx < scene_idx:
+        raise SystemExit(f'{marker} renders before OfficeScene; compact controls must not push the scene below the fold')
+if classic_idx >= 0:
+    for marker in ['<CeoTaskComposer', '<FacilitationTimeline', '<ActionAuditPanel', '<InterventionPanel']:
+        idx = app.find(marker)
+        if idx >= 0 and idx < classic_idx:
+            raise SystemExit(f'{marker} renders before classic workspace fallback; controls must remain secondary')
+print('scene-first render order contract ok')
+PY
+
 grep -q '\.office-scene' src-ui/styles.css || fail "office scene styles missing"
 grep -q '\.scene-viewport' src-ui/styles.css || fail "scene viewport styles missing"
 grep -q '\.office-zone' src-ui/styles.css || fail "office zone styles missing"
@@ -52,10 +71,33 @@ grep -q 'prefers-reduced-motion' src-ui/styles.css || fail "reduced motion CSS g
 grep -q 'workspace-native-screenshot-manifest' tests/workspace_native_screenshots.sh || fail "native screenshot harness missing"
 grep -q 'releaseProof' tests/workspace_native_screenshots.sh || fail "native screenshot harness must preserve releaseProof gate"
 grep -q 'live-normal' tests/workspace_native_screenshots.sh || fail "native screenshot harness missing live-normal state"
+grep -q 'final-ready' tests/workspace_native_screenshots.sh || fail "native screenshot harness missing final-ready state"
 grep -q 'dense-20' tests/workspace_native_screenshots.sh || fail "native screenshot harness missing dense-20 state"
 grep -q 'dense-50-search-filter' tests/workspace_native_screenshots.sh || fail "native screenshot harness missing dense-50-search-filter state"
+grep -q 'live-click-filled' tests/workspace_native_screenshots.sh || fail "native screenshot harness missing live-click-filled review state"
 grep -q 'keyboard-focus' tests/workspace_native_screenshots.sh || fail "native screenshot harness missing keyboard-focus state"
 grep -q 'read-only-security' tests/workspace_native_screenshots.sh || fail "native screenshot harness missing read-only-security state"
+[[ -f tests/workspace_native_contact_sheet.sh ]] || fail "native screenshot contact sheet generator missing"
+
+if python3 - <<'PY'
+from pathlib import Path
+css = Path('src-ui/styles.css').read_text(encoding='utf-8')
+blocks = []
+start = 0
+while True:
+    idx = css.find('.refresh-row', start)
+    if idx < 0:
+        break
+    end = css.find('}', idx)
+    blocks.append(css[idx:end])
+    start = idx + 1
+if not blocks:
+    raise SystemExit(1)
+raise SystemExit(0 if any('position: absolute' in block for block in blocks) else 1)
+PY
+then
+  fail "refresh controls must not be a floating overlay over the office scene"
+fi
 
 python3 tests/fixtures/workspace/validate_workspace_fixtures.py
 [[ -f tests/fixtures/workspace/dense-20-roles.json ]] || fail "dense-20 fixture missing"
