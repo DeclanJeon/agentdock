@@ -12,6 +12,8 @@ grep -q 'deriveFacilitationTimeline' src-ui/model/timeline.ts || fail "timeline 
 grep -q "missing reports" src-ui/model/timeline.ts || fail "missing report blocker note missing"
 grep -q "Blocked overlay\|Blocker overrides" src-ui/model/timeline.ts || fail "blocker override logic missing"
 grep -q "mode === 'stale'" src-ui/model/timeline.ts || fail "stale fallback mode not handled"
+grep -q "mode === 'error'" src-ui/model/timeline.ts || fail "error fallback mode not handled"
+grep -q "Demo fallback" src-ui/model/timeline.ts || fail "demo fallback mode not handled"
 grep -q 'FacilitationTimeline' src-ui/App.tsx || fail "timeline not mounted"
 grep -q 'aria-label="Facilitation timeline"' src-ui/components/FacilitationTimeline.tsx || fail "timeline aria label missing"
 
