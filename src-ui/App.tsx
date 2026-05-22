@@ -10,6 +10,10 @@ import { PixelOffice } from './components/PixelOffice';
 import { Inspector } from './components/Inspector';
 import { OfficeScene } from './scene/OfficeScene';
 import { CeoTaskComposer } from './components/CeoTaskComposer';
+import { FacilitationTimeline } from './components/FacilitationTimeline';
+import { ActionAuditPanel } from './components/ActionAuditPanel';
+import { InterventionPanel } from './components/InterventionPanel';
+import { completeJobCreateAudit, newAuditAttempt, type ActionAuditEvent } from './model/actionAudit';
 
 function projectRootFromLocation(): string {
   const params = new URLSearchParams(window.location.search);
@@ -53,6 +57,8 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
   const [refreshInFlight, setRefreshInFlight] = useState(false);
+  const [lastCreateRefreshStatus, setLastCreateRefreshStatus] = useState<'idle' | 'pending' | 'succeeded' | 'failed'>('idle');
+  const [auditEvents, setAuditEvents] = useState<ActionAuditEvent[]>([]);
   const refreshInFlightRef = useRef(false);
 
   const switchVisualMode = useCallback((nextMode: VisualWorkspaceMode) => {
@@ -124,9 +130,18 @@ export default function App() {
   }, [loadSnapshot]);
 
   const createCeoJob = useCallback(async (request: string): Promise<JobCreateResult> => {
+    const attempt = newAuditAttempt('agentdock_job_create', request);
+    setAuditEvents((events) => [attempt, ...events].slice(0, 20));
     const result = await invoke<JobCreateResult>('agentdock_job_create', { projectRoot: projectRootFromLocation(), request });
+    setAuditEvents((events) => events.map((event) => event.id === attempt.id ? completeJobCreateAudit(event, result) : event));
     if (result.ok) {
-      await loadSnapshot();
+      setLastCreateRefreshStatus('pending');
+      try {
+        await loadSnapshot();
+        setLastCreateRefreshStatus('succeeded');
+      } catch (_error) {
+        setLastCreateRefreshStatus('failed');
+      }
     }
     return result;
   }, [loadSnapshot]);
@@ -149,7 +164,10 @@ export default function App() {
         </div>
       </div>
       <ErrorStrip mode={mode} error={error} lastUpdatedAt={lastUpdatedAt} />
-      <CeoTaskComposer onCreateJob={createCeoJob} />
+      <CeoTaskComposer onCreateJob={createCeoJob} refreshStatus={lastCreateRefreshStatus} lastRefreshAt={lastUpdatedAt} />
+      <FacilitationTimeline snapshot={snapshot} mode={mode} />
+      <ActionAuditPanel events={auditEvents} />
+      <InterventionPanel snapshot={snapshot} />
       {visualMode === 'pixelOffice' ? (
         <OfficeScene snapshot={snapshot} mode={mode} selectedRoleId={selectedRole?.id} onSelectRole={setSelectedRole} />
       ) : (

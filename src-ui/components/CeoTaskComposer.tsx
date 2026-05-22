@@ -3,9 +3,11 @@ import { jobCreateErrorMessage, MAX_CEO_TASK_CHARS, validateCeoTaskRequest, type
 
 interface CeoTaskComposerProps {
   onCreateJob: (request: string) => Promise<JobCreateResult>;
+  refreshStatus?: 'idle' | 'pending' | 'succeeded' | 'failed';
+  lastRefreshAt?: string | null;
 }
 
-export function CeoTaskComposer({ onCreateJob }: CeoTaskComposerProps) {
+export function CeoTaskComposer({ onCreateJob, refreshStatus = 'idle', lastRefreshAt = null }: CeoTaskComposerProps) {
   const [request, setRequest] = useState('');
   const [inFlight, setInFlight] = useState(false);
   const [result, setResult] = useState<JobCreateResult | null>(null);
@@ -61,7 +63,11 @@ export function CeoTaskComposer({ onCreateJob }: CeoTaskComposerProps) {
           {inFlight ? 'Sending to CEO…' : 'Send to CEO'}
         </button>
       </div>
-      <p id="ceo-task-trust" className="trust-copy">Controlled action · creates a CEO-led job only · no arbitrary shell</p>
+      <p id="ceo-task-trust" className="trust-copy">Controlled action · creates a CEO-led job only · no arbitrary shell · duplicate submit locked while sending</p>
+      <p className={`snapshot-refresh-state state-${refreshStatus}`} aria-live="polite">
+        Snapshot refresh after create: {refreshStatus}
+        {lastRefreshAt ? ` · last refreshed ${new Date(lastRefreshAt).toLocaleTimeString()}` : ''}
+      </p>
       {result ? (
         <div className={result.ok ? 'composer-result success' : 'composer-result failure'} role="status" aria-live="polite">
           {result.ok ? (
