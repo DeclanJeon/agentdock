@@ -2,6 +2,9 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig({
+  // Tauri serves built assets from its app protocol, not from an HTTP root.
+  // Relative asset paths prevent a blank native release window caused by /assets/* URLs.
+  base: './',
   plugins: [react()],
   clearScreen: false,
   server: {

@@ -29,10 +29,13 @@ fail() { echo "workspace desktop app test failed: $*" >&2; exit 1; }
 [[ -f src-tauri/tauri.conf.json ]] || fail "src-tauri/tauri.conf.json missing"
 
 node -e 'const p=require("./package.json"); if(!p.scripts || !p.scripts["tauri:dev"] || !p.scripts["tauri:build"] || !p.scripts.build) process.exit(1)'
+grep -q "base: './'" vite.config.ts || fail "vite config must use relative asset base for Tauri app protocol"
 
 grep -q 'agentdock workspace app' README.md || fail "README missing desktop app launch docs"
-./bin/agentdock help | grep -q 'workspace app' || fail "agentdock help missing workspace app"
-./bin/agentdock workspace app --help | grep -q 'agentdock-workspace' || fail "workspace app help missing binary guidance"
+agentdock_help="$(./bin/agentdock help)"
+grep -q 'workspace app' <<<"$agentdock_help" || fail "agentdock help missing workspace app"
+workspace_app_help="$(./bin/agentdock workspace app --help)"
+grep -q 'agentdock-workspace' <<<"$workspace_app_help" || fail "workspace app help missing binary guidance"
 python3 tests/fixtures/workspace/validate_workspace_fixtures.py
 
 grep -q 'workspace_snapshot' src-tauri/src/lib.rs || fail "Tauri adapter missing workspace_snapshot command"
