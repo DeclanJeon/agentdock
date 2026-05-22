@@ -16,7 +16,13 @@ NATIVE_EVIDENCE_DIR="$ROOT/.agent-work/07_JOBS/$JOB_ID/OUTPUTS/native-evidence"
 LIVE_CLICK_EVIDENCE_JSON="$LIVE_CLICK_EVIDENCE_DIR/live-click-evidence.json"
 NATIVE_MANIFEST_JSON="$NATIVE_EVIDENCE_DIR/workspace-native-screenshot-manifest.json"
 
-source_stamp_before="$(find bin src-ui src-tauri tests -type f -printf '%T@ %p\n' | sort -n | tail -1)"
+source_stamp() {
+  find bin src-ui tests src-tauri \
+    \( -path 'src-tauri/target' -o -path 'src-tauri/target/*' \) -prune -o \
+    -type f -printf '%T@ %p\n' | sort -n | tail -1
+}
+
+source_stamp_before="$(source_stamp)"
 
 declare -a names cmds statuses durations
 run_gate() {
@@ -41,11 +47,8 @@ run_gate "workspace job create bridge" "bash tests/workspace_job_create_bridge.s
 if [[ "${AGENTDOCK_RUN_LIVE_CLICK:-0}" == "1" ]]; then
   run_gate "live click job create" "bash tests/workspace_live_click_job_create.sh '$LIVE_CLICK_EVIDENCE_DIR'"
 else
-  names+=("live click job create")
-  cmds+=("bash tests/workspace_live_click_job_create.sh '$LIVE_CLICK_EVIDENCE_DIR'")
-  statuses+=("3")
-  durations+=("0")
   echo "===== live click job create skipped: set AGENTDOCK_RUN_LIVE_CLICK=1 with AGENTDOCK_LIVE_CLICK_DRIVER_CMD =====" >> "$LOG"
+  run_gate "live click job create" "bash tests/workspace_live_click_job_create.sh '$LIVE_CLICK_EVIDENCE_DIR'"
 fi
 run_gate "desktop no-write" "bash tests/workspace_desktop_no_write.sh"
 run_gate "quiet no-write" "bash tests/workspace_quiet_no_write.sh"
@@ -77,7 +80,7 @@ else
   run_gate "native screenshots manifest" "bash tests/workspace_native_screenshots.sh '$NATIVE_EVIDENCE_DIR'"
 fi
 
-source_stamp_after="$(find bin src-ui src-tauri tests -type f -printf '%T@ %p\n' | sort -n | tail -1)"
+source_stamp_after="$(source_stamp)"
 stale=false
 [[ "$source_stamp_before" == "$source_stamp_after" ]] || stale=true
 
