@@ -137,7 +137,8 @@ for state in states:
     env['AGENTDOCK_NATIVE_EVIDENCE_CAPTURE'] = '1'
     proc = subprocess.Popen([str(app), '--project', str(project)], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
-        time.sleep(4)
+        wait_seconds = float(os.environ.get('AGENTDOCK_NATIVE_CAPTURE_WAIT_SECONDS', '6'))
+        time.sleep(wait_seconds)
         cmd = template.format(id=shlex.quote(state), path=shlex.quote(str(png)), project=shlex.quote(str(project)))
         print(f'capture {state}: {cmd}')
         subprocess.run(cmd, shell=True, check=True, timeout=20, env=env)
@@ -150,5 +151,5 @@ for state in states:
             proc.wait(timeout=5)
 PY
 
-AGENTDOCK_NATIVE_SCREENSHOT_IMPORT_DIR="$OUTPUT_DIR" AGENTDOCK_NATIVE_RUNTIME_CONFIRMED=1 AGENTDOCK_NATIVE_APP_RUNTIME="$APP_BIN" \
+AGENTDOCK_NATIVE_SCREENSHOT_CMD="" AGENTDOCK_NATIVE_SCREENSHOT_IMPORT_DIR="$OUTPUT_DIR" AGENTDOCK_NATIVE_RUNTIME_CONFIRMED=1 AGENTDOCK_NATIVE_APP_RUNTIME="$APP_BIN" \
   bash tests/workspace_native_screenshots.sh "$OUTPUT_DIR"

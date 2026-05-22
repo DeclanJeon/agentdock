@@ -6,8 +6,8 @@
 ## 현재 결론
 
 - Source/test controlled-action slice는 GO with constraints.
-- Release-ready는 NO-GO.
-- 가장 큰 잔여 P0는 real sandbox live-click mutation proof다.
+- Release proof gates는 GO: final matrix 21/21 PASS, native live-click PASS, current-job native `releaseProof=true`.
+- 이전 최대 P0였던 real sandbox live-click mutation proof는 `JOB-260522190004397678` 기준 완료됐다.
 - 앱 내 변경지시/개입 기능은 아직 없다. 별도 controlled action slices로 설계/검증해야 한다.
 
 ## P0 — release-ready 전에 필요
@@ -206,4 +206,3 @@ bash tests/workspace_package_artifacts.sh
 4. Facilitation Timeline.
 5. Read-only Job History.
 6. 그 다음에야 send/broadcast 같은 변경지시 controlled action 설계.
-

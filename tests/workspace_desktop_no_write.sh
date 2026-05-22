@@ -20,11 +20,11 @@ manifest() {
 [[ -d .agent-work ]] || fail ".agent-work missing"
 [[ -f src-tauri/src/lib.rs ]] || fail "src-tauri/src/lib.rs missing"
 
-# Static safety boundary: desktop app is snapshot plus one controlled job-create action.
+# Static safety boundary: desktop app is snapshot plus fixed-argv controlled actions; no broad shell/write bridge.
 # Scan production adapter code, not Rust #[cfg(test)] helper setup that legitimately creates temp dirs.
 python3 - <<'PY' > "$TMP/lib.production.rs"
 from pathlib import Path
-src = Path('src-tauri/src/lib.rs').read_text()
+src = Path('src-tauri/src/lib.rs').read_text(errors='replace')
 marker = '#[cfg(test)]'
 if marker in src:
     src = src[:src.index(marker)]
@@ -33,16 +33,20 @@ PY
 
 compact_lib="$(tr -d '[:space:]' < "$TMP/lib.production.rs")"
 grep -q 'workspace_snapshot' "$TMP/lib.production.rs" || fail "workspace_snapshot command missing"
-grep -q 'agentdock_job_create' "$TMP/lib.production.rs" || fail "agentdock_job_create command missing"
-[[ "$compact_lib" == *'tauri::generate_handler![workspace_snapshot,agentdock_job_create]'* ]] || fail "Tauri invoke handler must expose exactly workspace_snapshot and agentdock_job_create"
-if grep -Eq 'generate_handler!\[[^]]*(finish|send|recruit|broadcast|report|task|inbox|write_file|remove_file|control)' "$TMP/lib.production.rs"; then
-  fail "Tauri invoke handler exposes forbidden action command"
+for handler in workspace_watch_start agentdock_job_create agentdock_job_followup agentdock_team_broadcast agentdock_role_send agentdock_recruit_preview agentdock_recruit_role agentdock_task_proposal agentdock_job_report agentdock_finish_preview agentdock_job_finish; do
+  grep -q "$handler" "$TMP/lib.production.rs" || fail "$handler command missing"
+done
+for handler in workspace_snapshot workspace_watch_start agentdock_job_create agentdock_job_followup agentdock_team_broadcast agentdock_role_send agentdock_recruit_preview agentdock_recruit_role agentdock_task_proposal agentdock_job_report agentdock_finish_preview agentdock_job_finish; do
+  [[ "$compact_lib" == *"$handler"* ]] || fail "Tauri invoke handler missing $handler"
+done
+if grep -Eq 'generate_handler!\[[^]]*(write_file|remove_file|OpenOptions|File::create|std::fs::write)' "$TMP/lib.production.rs"; then
+  fail "Tauri invoke handler exposes forbidden broad write command"
 fi
 if grep -Eq 'sh -c|bash -c|/bin/sh|/bin/bash' "$TMP/lib.production.rs"; then
   fail "adapter must not invoke a shell"
 fi
-if grep -Eq 'job_report|job_finish|job_send|broadcast|recruit|inbox|write_bridge|write_file|remove_file|OpenOptions|File::create|std::fs::write' "$TMP/lib.production.rs"; then
-  fail "adapter appears to expose write/control capability"
+if grep -Eq 'sh -c|bash -c|/bin/sh|/bin/bash|write_file|remove_file|OpenOptions|File::create|std::fs::write' "$TMP/lib.production.rs"; then
+  fail "adapter appears to expose shell or broad write capability"
 fi
 if grep -R --line-number --exclude-dir=node_modules --exclude-dir=dist --exclude-dir=target -E 'write_bridge_enabled[[:space:]]*[:=][[:space:]]*true|writeBridgeEnabled[[:space:]]*[:=][[:space:]]*true' src-ui src-tauri/src 2>/dev/null; then
   fail "write bridge enabled flag found"

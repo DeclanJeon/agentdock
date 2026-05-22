@@ -20,6 +20,7 @@ AGENTDOCK_ROLE_TEMPLATE_DIR="$INSTALL_ROOT/roles/agentdock"
 USER_ADAPTER_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/agentdock/adapters"
 USER_ROLE_TEMPLATE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/agentdock/roles/bmad"
 USER_AGENTDOCK_ROLE_TEMPLATE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/agentdock/roles/agentdock"
+AGENCY_REGISTRY_PATH=".agentdock/agency/registry.json"
 BMAD_GITHUB_OWNER="${AGENTDOCK_BMAD_GITHUB_OWNER:-bmad-code-org}"
 BMAD_GITHUB_REPO="${AGENTDOCK_BMAD_GITHUB_REPO:-BMAD-METHOD}"
 BMAD_DEFAULT_REF="${AGENTDOCK_BMAD_REF:-main}"
@@ -190,7 +191,8 @@ Commands:
   setup [--cli hermes]    Install missing runtime dependencies
   cli list [--json]       List adapter registry
   cli add ...             Add a custom adapter
-  roles list|sync bmad    List or sync BMAD role templates
+  roles list|recommend|sync bmad
+                          List/suggest role templates or sync BMAD role templates
   install <tool|cli>      Preview/run a dependency or AI CLI install command
   init                    Initialize .agentdock and .agent-work
   role add <id>           Add a project role
@@ -384,9 +386,152 @@ adapter_ids() {
   for f in $(adapter_files); do basename "$f" .conf; done | awk '!seen[$0]++'
 }
 
+agency_registry_file() {
+  local root="${1:-$(pwd)}"
+  if [[ -f "$root/$AGENCY_REGISTRY_PATH" ]]; then
+    printf '%s\n' "$root/$AGENCY_REGISTRY_PATH"
+  elif [[ -f "$INSTALL_ROOT/$AGENCY_REGISTRY_PATH" ]]; then
+    printf '%s\n' "$INSTALL_ROOT/$AGENCY_REGISTRY_PATH"
+  else
+    return 1
+  fi
+}
+
+agency_registry_template_ids() {
+  local registry
+  registry="$(agency_registry_file "${1:-$(pwd)}" || true)"
+  [[ -n "$registry" ]] || return 0
+  python3 - "$registry" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1], encoding='utf-8'))
+for item in data.get('templates', []):
+    ident = item.get('id', '')
+    if ident.startswith('agency-'):
+        print(ident)
+PY
+}
+
+agency_registry_field() {
+  local root="$1" id="$2" field="$3" registry
+  registry="$(agency_registry_file "$root" || true)"
+  [[ -n "$registry" ]] || return 1
+  python3 - "$registry" "$id" "$field" <<'PY'
+import json, sys
+registry, ident, field = sys.argv[1:4]
+data = json.load(open(registry, encoding='utf-8'))
+for item in data.get('templates', []):
+    if item.get('id') == ident:
+        value = item
+        for part in field.split('.'):
+            if not isinstance(value, dict) or part not in value:
+                raise SystemExit(1)
+            value = value[part]
+        if isinstance(value, list):
+            print(', '.join(str(v) for v in value))
+        elif isinstance(value, dict):
+            print(json.dumps(value, ensure_ascii=False))
+        else:
+            print(value)
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
+agency_recommend_templates() {
+  local root="$1" request="$2" limit="${3:-5}" format="${4:-text}" registry
+  registry="$(agency_registry_file "$root" || true)"
+  [[ -n "$registry" ]] || return 0
+  python3 - "$registry" "$request" "$limit" "$format" <<'PY'
+import json, re, sys
+registry, request, limit, fmt = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]
+data = json.load(open(registry, encoding='utf-8'))
+text = request.lower()
+boosts = {
+    "agency-frontend-developer": [r"react|frontend|tsx|css|ui|화면|레이아웃|반응형|버튼|tauri"],
+    "agency-ux-architect": [r"ux|사용성|사용자|흐름|정보구조|복잡|어렵|편리"],
+    "agency-ui-designer": [r"ui|visual|디자인|레이아웃|섹션|텍스트|버튼|시각"],
+    "agency-whimsy-injector": [r"애니|움직|캐릭터|마이크로|delight|재미|생동감"],
+    "agency-qa-specialist": [r"test|qa|검증|테스트|회귀|품질"],
+    "agency-code-reviewer": [r"review|리뷰|검토|결함|regression|maintain"],
+    "agency-security-engineer": [r"security|보안|secret|권한|shell|sandbox|안전"],
+    "agency-technical-writer": [r"docs|문서|가이드|readme|작업지시|체크리스트"],
+    "agency-product-manager": [r"prd|요구|scope|기획|acceptance|제품"],
+    "agency-project-manager": [r"일정|milestone|coordination|작업분해|진행|관리"],
+    "agency-software-architect": [r"architecture|설계|구조|시스템|contract|경계"],
+    "agency-backend-architect": [r"backend|api|server|database|rust|cli|tauri"],
+    "agency-devops-automator": [r"ci|cd|build|deploy|빌드|배포|자동화"],
+    "agency-reality-checker": [r"가능|현실|production|ready|리스크|검증"],
+    "agency-ux-researcher": [r"리서치|research|사용자조사|persona|usability"],
+}
+rows = []
+for item in data.get("templates", []):
+    ident = item.get("id", "")
+    if not ident.startswith("agency-"):
+        continue
+    score = 0
+    reasons = []
+    for phrase in item.get("when_to_use", []):
+        p = str(phrase).lower()
+        words = [w for w in re.split(r"[^a-z0-9가-힣]+", p) if len(w) >= 2]
+        if p and p in text:
+            score += 5
+            reasons.append(phrase)
+        else:
+            hits = sum(1 for w in words if w in text)
+            if hits:
+                score += hits
+                reasons.append(phrase)
+    for pattern in boosts.get(ident, []):
+        if re.search(pattern, text, re.I):
+            score += 6
+            reasons.append("request intent")
+    if score:
+        rows.append({
+            "template_id": ident,
+            "display_name": item.get("display_name", ident),
+            "department": item.get("department", ""),
+            "archetype": item.get("archetype", ""),
+            "score": score,
+            "reason": ", ".join(dict.fromkeys(reasons))[:220],
+        })
+rows.sort(key=lambda r: (-r["score"], r["template_id"]))
+rows = rows[:limit]
+if fmt == "json":
+    print(json.dumps(rows, ensure_ascii=False))
+else:
+    for row in rows:
+        print("\t".join(str(row[k]) for k in ["template_id", "display_name", "department", "archetype", "score", "reason"]))
+PY
+}
+
+is_agency_template_id() {
+  local id
+  id="$(sanitize_id "${1:-}")"
+  [[ "$id" == agency-* ]] || return 1
+  agency_registry_template_ids "${2:-$(pwd)}" | grep -Fxq "$id"
+}
+
+agency_template_file() {
+  local root="$1" id="$2" prompt_file registry_base
+  is_agency_template_id "$id" "$root" || return 1
+  prompt_file="$(agency_registry_field "$root" "$id" prompt_file)" || return 1
+  [[ "$prompt_file" == /* ]] || prompt_file="$root/$prompt_file"
+  if [[ ! -f "$prompt_file" ]]; then
+    registry_base="$(dirname "$(agency_registry_file "$root")")"
+    prompt_file="$registry_base/templates/$id.md"
+  fi
+  [[ -f "$prompt_file" ]] || return 1
+  printf '%s\n' "$prompt_file"
+}
+
 canonical_role_template_id() {
   local id
   id="$(sanitize_id "${1:-}")"
+  if [[ "$id" == agency-* ]]; then
+    is_agency_template_id "$id" "${AGENTDOCK_TEMPLATE_ROOT:-$(pwd)}" || return 1
+    printf '%s\n' "$id"
+    return 0
+  fi
   case "$id" in
     ceo|chief-executive|chief-executive-officer|orchestrator|agentdock-ceo) id="agentdock-ceo" ;;
     cto|chief-technology|chief-technology-officer|technical-director|agentdock-cto) id="agentdock-cto" ;;
@@ -407,6 +552,10 @@ canonical_role_template_id() {
 role_template_file() {
   local id
   id="$(canonical_role_template_id "${1:-}")" || return 1
+  if [[ "$id" == agency-* ]]; then
+    agency_template_file "${AGENTDOCK_TEMPLATE_ROOT:-$(pwd)}" "$id"
+    return
+  fi
   if [[ "$id" == agentdock-* ]]; then
     if [[ -f "$USER_AGENTDOCK_ROLE_TEMPLATE_DIR/$id.md" ]]; then
       printf '%s\n' "$USER_AGENTDOCK_ROLE_TEMPLATE_DIR/$id.md"
@@ -528,6 +677,7 @@ sync_bmad_template() {
 ensure_role_template_available() {
   local template="$1" policy="${2:-local}" source_url="${3:-}" ref="${4:-$BMAD_DEFAULT_REF}" id base
   id="$(canonical_role_template_id "$template")" || return 1
+  [[ "$id" == agency-* ]] && return 0
   role_template_file "$id" >/dev/null 2>&1 && return 0
   [[ "$policy" == "auto" || "$policy" == "strict" ]] || return 0
   is_bmad_template_id "$id" || return 0
@@ -663,6 +813,20 @@ print_builtin_roles() {
   printf '%-24s %-24s %-12s %s\n' "agentdock-marketing" "Marketing Strategist" "AgentDock" "positioning, audience, messaging, launch and growth channels."
   printf '%-24s %-24s %-12s %s\n' "agentdock-planner" "Planning Manager" "AgentDock" "roadmap slicing, milestones, dependencies, delivery coordination."
   printf '%-24s %-24s %-12s %s\n' "agentdock-qa" "QA / Quality Engineer" "AgentDock" "test strategy, regression planning, bug reproduction, release readiness."
+  local registry
+  registry="$(agency_registry_file "$(pwd)" || true)"
+  if [[ -n "$registry" ]]; then
+    python3 - "$registry" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1], encoding='utf-8'))
+for item in data.get('templates', []):
+    ident = item.get('id', '')
+    if not ident.startswith('agency-'):
+        continue
+    use = ', '.join(item.get('when_to_use', [])[:4])
+    print(f"{ident:<24} {item.get('display_name', ident):<24} {'Agency':<12} {use}")
+PY
+  fi
 }
 
 cmd_roles() {
@@ -671,6 +835,32 @@ cmd_roles() {
     list)
       printf '%-24s %-24s %-12s %s\n' "Template" "Role" "Source" "Use"
       print_builtin_roles
+      ;;
+    recommend)
+      shift || true
+      local root request="" limit=5 json=0 file_arg=""
+      root="$(require_project "$@")"
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --limit) limit="${2:-5}"; shift 2 ;;
+          --json) json=1; shift ;;
+          --file) file_arg="${2:-}"; shift 2 ;;
+          --project) shift 2 ;;
+          --project=*) shift ;;
+          *) request="${request:+$request }$1"; shift ;;
+        esac
+      done
+      [[ -n "$file_arg" ]] && request="$(cat "$file_arg")"
+      [[ -n "$request" ]] || die "usage: agentdock roles recommend \"request...\" [--limit N] [--json]"
+      if [[ "$json" == 1 ]]; then
+        agency_recommend_templates "$root" "$request" "$limit" json
+      else
+        printf '%-30s %-28s %-18s %-8s %s\n' "Template" "Role" "Department" "Score" "Reason"
+        agency_recommend_templates "$root" "$request" "$limit" text | while IFS=$'\t' read -r template display department archetype score reason; do
+          [[ -n "$template" ]] || continue
+          printf '%-30s %-28s %-18s %-8s %s\n' "$template" "$display" "$department" "$score" "$reason"
+        done
+      fi
       ;;
     sync)
       shift || true
@@ -715,7 +905,7 @@ cmd_roles() {
         say "Synced $synced BMAD role template(s) to $USER_ROLE_TEMPLATE_DIR"
       fi
       ;;
-    *) die "usage: agentdock roles list|sync bmad" ;;
+    *) die "usage: agentdock roles list|recommend|sync bmad" ;;
   esac
 }
 
@@ -1205,12 +1395,19 @@ EOF
 write_template_role_prompt() {
   local root="$1" id="$2" display="$3" template="$4" mission="$5" instructions="$6" template_policy="${7:-local}" source_url="${8:-}" ref="${9:-$BMAD_DEFAULT_REF}"
   local file="$root/.agentdock/prompts/$id.md" template_file
+  local AGENTDOCK_TEMPLATE_ROOT="$root"
   ensure_role_template_available "$template" "$template_policy" "$source_url" "$ref"
   template_file="$(role_template_file "$template" || true)"
   [[ -n "$template_file" ]] || role_template_body "$template" >/dev/null || die "unknown role template: $template. Run: agentdock roles list"
+  local template_id
+  template_id="$(canonical_role_template_id "$template" || printf '%s' "$template")"
   {
     printf '# %s\n\n' "$display"
-    printf 'Based on role template: `%s`.\n\n' "$template"
+    printf 'Based on role template: `%s`.\n\n' "$template_id"
+    if [[ "$template_id" == agency-* ]]; then
+      printf '<!-- AgentDock template_id: %s -->\n' "$template_id"
+      printf '<!-- AgentDock source: curated agency-agents registry -->\n\n'
+    fi
     if [[ -n "$template_file" ]]; then
       cat "$template_file"
     else
@@ -2079,7 +2276,7 @@ $role
 ## Required CEO-led flow
 1. Read the request and inspect the existing configured/running team in \`TEAM.md\` and \`agentdock team\`.
 2. Choose the smallest useful team for this job. Reuse existing running/configured roles when their capability fits.
-3. Inspect additional templates with \`agentdock roles list\` only when a needed capability is missing. Prefer BMAD templates when they fit; use AgentDock supplemental templates for CEO, CTO, marketing, planning, and QA lanes.
+3. Inspect additional templates with \`agentdock roles list\` only when a needed capability is missing. Prefer existing configured roles first. Prefer BMAD templates when they fit; use AgentDock supplemental templates for CEO, CTO, marketing, planning, and QA lanes; use curated agency-* templates only for sharply specialized missing capabilities such as frontend UI, UX architecture, security review, code review, QA, docs, DevOps, or product/project management.
 4. Recruit only missing roles with \`agentdock recruit <role-name> --template <template-id> --mission "..." --instructions "..."\`. AgentDock reuses same-name running roles and creates tmux/Hermes panes only for missing roles.
 5. Write or update one task card per selected role under \`TASKS/\`, then send each role an inbox message with its task-card path.
 6. Each role must submit completed work to the CEO with \`agentdock job report --from <role> --summary "..."\`. AgentDock writes \`YYMMDDHH:MM:SS-<role>.md\` under this job's \`REPORTS/\` directory and notifies the CEO.
@@ -2101,7 +2298,27 @@ EOF
 - Prefer reusing the existing configured/running team listed below before creating new role names.
 - Keep role names specific to the job.
 - Prefer BMAD templates from \`agentdock roles list\`; use AgentDock supplemental templates when BMAD has no matching specialist.
+- Review the recommended curated agency specialists below before recruiting; use agency-* only for sharply specialized missing capabilities, never as a bulk import.
 EOF
+  {
+    printf '\n## Recommended curated agency specialists\n\n'
+    printf 'AgentDock recommendation source: local curated registry only; no remote agency-agents code is executed.\n\n'
+    printf '| Template | Role | Department | Score | Why |\n'
+    printf '|---|---|---|---:|---|\n'
+    local rec_template rec_display rec_department rec_archetype rec_score rec_reason rec_count=0
+    while IFS=$'\t' read -r rec_template rec_display rec_department rec_archetype rec_score rec_reason; do
+      [[ -n "$rec_template" ]] || continue
+      rec_count=$((rec_count + 1))
+      printf '| %s | %s | %s | %s | %s |\n' "$rec_template" "$rec_display" "$rec_department" "$rec_score" "$rec_reason"
+    done < <(agency_recommend_templates "$root" "$text" 6 text)
+    if [[ "$rec_count" -eq 0 ]]; then
+      printf '| - | No agency specialist recommendation for this request. | - | 0 | Reuse configured/BMAD roles first. |\n'
+    fi
+    printf '\nRecruit only if missing from the current team, for example:\n'
+    printf '\n```bash\n'
+    printf 'agentdock recruit <role-name> --template <template-id> --mission "..." --instructions "..."\n'
+    printf '```\n'
+  } >> "$job/TEAM.md"
   write_team_snapshot "$root" "$job/TEAM.md" "$role"
 
   cat > "$job/LIFECYCLE.md" <<EOF
@@ -2140,6 +2357,7 @@ Design the smallest useful AgentDock team, reuse suitable existing configured/ru
 - Inspect existing configured/running roles in \`$job/TEAM.md\` and with \`agentdock team\`.
 - Reuse suitable existing roles before creating new role names.
 - Inspect templates with \`agentdock roles list\` only when a needed capability is missing.
+- Review the \`Recommended curated agency specialists\` section in \`$job/TEAM.md\`; recruit agency-* specialists only when the recommendation fills a real missing capability.
 - Update \`$job/TEAM.md\` with selected roles, templates, missions, and status.
 - Recruit only missing specialists with \`agentdock recruit <role-name> --template <template-id> --mission "..." --instructions "..."\`.
 - Create or update task cards under \`$job/TASKS/\`.
@@ -2330,6 +2548,12 @@ cmd_job_finish() {
 
 cmd_job() {
   case "${1:-}" in
+    help|--help|-h)
+      say "Usage: agentdock job [start] \"request...\" [--no-attach] [--project <path>]"
+      say "       agentdock job report --from <role> --summary \"...\" [--job <path>]"
+      say "       agentdock job finish --summary \"...\" [--job <path>] [--keep-team]"
+      return 0
+      ;;
     report|submit)
       shift || true
       cmd_job_report "$@"
@@ -2426,7 +2650,27 @@ EOF
 - Update rows when roles are added, removed, blocked, or completed.
 - Keep role names specific to the job.
 - Prefer BMAD templates from \`agentdock roles list\`; use AgentDock supplemental templates when BMAD has no matching specialist.
+- Review recommended curated agency specialists before recruiting; use agency-* only for sharply specialized missing capabilities, never as a bulk import.
 EOF
+  {
+    printf '\n## Recommended curated agency specialists\n\n'
+    printf 'AgentDock recommendation source: local curated registry only; no remote agency-agents code is executed.\n\n'
+    printf '| Template | Role | Department | Score | Why |\n'
+    printf '|---|---|---|---:|---|\n'
+    local rec_template rec_display rec_department rec_archetype rec_score rec_reason rec_count=0
+    while IFS=$'\t' read -r rec_template rec_display rec_department rec_archetype rec_score rec_reason; do
+      [[ -n "$rec_template" ]] || continue
+      rec_count=$((rec_count + 1))
+      printf '| %s | %s | %s | %s | %s |\n' "$rec_template" "$rec_display" "$rec_department" "$rec_score" "$rec_reason"
+    done < <(agency_recommend_templates "$root" "$text" 6 text)
+    if [[ "$rec_count" -eq 0 ]]; then
+      printf '| - | No agency specialist recommendation for this request. | - | 0 | Reuse configured/BMAD roles first. |\n'
+    fi
+    printf '\nRecruit only if missing from the current team, for example:\n'
+    printf '\n```bash\n'
+    printf 'agentdock recruit <role-name> --template <template-id> --mission "..." --instructions "..."\n'
+    printf '```\n'
+  } >> "$job/TEAM.md"
   cat > "$job/LIFECYCLE.md" <<EOF
 # Lifecycle
 
@@ -2686,6 +2930,25 @@ workspace_role_avatar() {
     *ops*|*infra*) printf 'Ops Penguin' ;;
     *) printf 'Agent Pet' ;;
   esac
+}
+
+workspace_role_template_id() {
+  local root="$1" role="$2" prompt_file="$root/.agentdock/prompts/$role.md" template_id=""
+  [[ -f "$prompt_file" ]] || return 0
+  template_id="$(sed -n 's/^<!-- AgentDock template_id: //p' "$prompt_file" 2>/dev/null | sed 's/ -->$//' | head -1)"
+  if [[ -z "$template_id" ]]; then
+    template_id="$(sed -n 's/^Based on role template: `\\([^`]*\\)`.*/\\1/p' "$prompt_file" 2>/dev/null | head -1)"
+  fi
+  template_id="$(sanitize_id "$template_id")"
+  [[ "$template_id" == agency-* ]] || return 0
+  is_agency_template_id "$template_id" "$root" || return 0
+  printf '%s' "$template_id"
+}
+
+agency_role_field_or_empty() {
+  local root="$1" template_id="$2" field="$3"
+  [[ -n "$template_id" ]] || return 0
+  agency_registry_field "$root" "$template_id" "$field" 2>/dev/null || true
 }
 
 workspace_manager_chain() {
@@ -3015,6 +3278,23 @@ print(value, end='')
 PY
 }
 
+workspace_job_request_text() {
+  local readme="${1:-}" limit="${2:-1600}"
+  [[ -f "$readme" ]] || return 0
+  awk '
+    /^## User request/ {capture=1; next}
+    /^## / && capture {exit}
+    capture {print}
+  ' "$readme" 2>/dev/null |
+    sed -E \
+      -e '/^BEGIN_UNTRUSTED_USER_REQUEST$/d' \
+      -e '/^END_UNTRUSTED_USER_REQUEST$/d' \
+      -e 's/^>[[:space:]]?//' |
+    tr '\n' ' ' |
+    sed -E 's/[[:space:]]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//' |
+    cut -c "1-$limit"
+}
+
 workspace_latest_report_summary() {
   local report="${1:-}" summary=""
   [[ -f "$report" ]] || { printf ''; return; }
@@ -3116,14 +3396,16 @@ workspace_collect_roles() {
 workspace_snapshot_json() {
   local root="$1"
   source_runtime "$root"
-  local generated_at project_name session_name job_dir job_readme job_id lifecycle_status lifecycle_path team_path configured selected coordinator final_ready=true final_reason missing_roles="" report_total=0 selected_count=0 submitted_count=0 role role_count=0 density config_warnings
+  local generated_at project_name session_name job_dir job_readme job_id lifecycle_status lifecycle_path team_path configured selected coordinator final_ready=true final_reason missing_roles="" report_total=0 selected_count=0 selected_worker_count=0 submitted_count=0 role role_count=0 density config_warnings job_request_for_recommendations
   generated_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   project_name="${PROJECT_NAME:-$(basename "$root")}"; session_name="${SESSION_NAME:-}"
   configured="${AGENT_IDS:-}"
   job_dir="$(current_job_dir "$root" 2>/dev/null || true)"
+  job_request_for_recommendations=""
   job_readme=""; job_id=""; lifecycle_status="none"; lifecycle_path=""; team_path=""; selected=""; coordinator="$(orchestrator_role "$root")"
   if [[ -n "$job_dir" ]]; then
     job_readme="$job_dir/README.md"
+    job_request_for_recommendations="$(workspace_job_request_text "$job_readme" 1600)"
     job_id="$(basename "$job_dir")"
     lifecycle_path="$job_dir/LIFECYCLE.md"
     team_path="$job_dir/TEAM.md"
@@ -3134,6 +3416,7 @@ workspace_snapshot_json() {
     while IFS= read -r role; do
       [[ -n "$role" ]] || continue
       [[ "$role" == "$coordinator" ]] && continue
+      selected_worker_count=$((selected_worker_count + 1))
       if role_has_job_report "$job_dir" "$role"; then
         submitted_count=$((submitted_count + 1))
       else
@@ -3142,7 +3425,11 @@ workspace_snapshot_json() {
       fi
     done < <(workspace_task_roles "$job_dir")
     if [[ "$final_ready" == true ]]; then
-      final_reason="All selected worker task roles have submitted reports."
+      if [[ "$selected_worker_count" -gt 0 ]]; then
+        final_reason="All selected worker task roles have submitted reports."
+      else
+        final_reason="No selected worker task roles require reports; coordinator can finish after self-review."
+      fi
     else
       final_reason="Missing job report(s) for selected worker role(s): $missing_roles"
     fi
@@ -3160,7 +3447,7 @@ workspace_snapshot_json() {
   printf '  "generated_at": '; json_string "$generated_at"; printf ',\n'
   printf '  "project": {"name": '; json_string "$project_name"; printf ', "root": '; json_string "$root"; printf ', "session": '; json_string "$session_name"; printf ', "session_name": '; json_string "$session_name"; printf '},\n'
   printf '  "job": {"id": '; json_string "$job_id"; printf ', "path": '; json_string "$job_dir"; printf ', "readme_path": '; json_string "$job_readme"; printf ', "lifecycle": '; json_string "$lifecycle_status"; printf ', "lifecycle_status": '; json_string "$lifecycle_status"; printf ', "final_ready": %s, "final_ready_reason": ' "$final_ready"; json_string "$final_reason"; printf '},\n'
-  printf '  "reports": {"total": %s, "submitted": %s, "required": %s, "submitted_selected_roles": %s, "required_selected_roles": %s, "missing_roles": [' "$report_total" "$submitted_count" "$selected_count" "$submitted_count" "$selected_count"
+  printf '  "reports": {"total": %s, "submitted": %s, "required": %s, "submitted_selected_roles": %s, "required_selected_roles": %s, "selected_roles": %s, "missing_roles": [' "$report_total" "$submitted_count" "$selected_worker_count" "$submitted_count" "$selected_worker_count" "$selected_count"
   local first=1
   for role in $missing_roles; do
     [[ "$first" == 1 ]] || printf ', '
@@ -3176,6 +3463,24 @@ workspace_snapshot_json() {
     printf '{"type":"missing_report","severity":"warning","summary":'; json_string "$final_reason"; printf '}'
     first=0
   fi
+  if [[ -n "$job_dir" && -d "$job_dir/TASKS" && "$lifecycle_status" != "complete" ]]; then
+    local now_epoch stale_minutes stale_seconds task_epoch task_age task_file
+    now_epoch="$(date +%s 2>/dev/null || printf '0')"
+    stale_minutes="${AGENTDOCK_STALE_ROLE_MINUTES:-60}"
+    stale_seconds=$((stale_minutes * 60))
+    for role in $missing_roles; do
+      task_file="$job_dir/TASKS/$role.md"
+      [[ -f "$task_file" ]] || continue
+      task_epoch="$(stat -c %Y "$task_file" 2>/dev/null || printf '0')"
+      [[ "$now_epoch" =~ ^[0-9]+$ && "$task_epoch" =~ ^[0-9]+$ && "$now_epoch" -gt 0 && "$task_epoch" -gt 0 ]] || continue
+      task_age=$((now_epoch - task_epoch))
+      if (( task_age >= stale_seconds )); then
+        [[ "$first" == 1 ]] || printf ', '
+        printf '{"type":"stale_role","severity":"warning","role":'; json_string "$role"; printf ',"summary":'; json_string "Selected role $role has not reported for ${stale_minutes}+ minutes; send a follow-up or reassign."; printf ',"next_action":"send follow-up or recruit backup","source_path":'; json_string "$task_file"; printf '}'
+        first=0
+      fi
+    done
+  fi
   if [[ -n "$job_dir" && -d "$job_dir/REPORTS" ]]; then
     local report summary
     while IFS= read -r report; do
@@ -3189,7 +3494,7 @@ workspace_snapshot_json() {
     done < <(find "$job_dir/REPORTS" -maxdepth 1 -type f -name '*.md' ! -name '*-final.md' 2>/dev/null | sort)
   fi
   printf '],\n'
-  printf '  "commands": {"mode":"controlled-actions", "write_bridge_enabled": false, "allowed_read_commands":["agentdock team","agentdock report --fast","agentdock inbox <role>","agentdock workspace snapshot --json"], "allowed_actions":["agentdock job --no-attach"]},\n'
+  printf '  "commands": {"mode":"controlled-actions", "write_bridge_enabled": false, "allowed_read_commands":["agentdock team","agentdock report --fast","agentdock inbox <role>","agentdock workspace snapshot --json"], "allowed_actions":["agentdock job --no-attach","agentdock send <coordinator>","agentdock broadcast --selected","agentdock send <role>","agentdock recruit <role> --template <template>","agentdock job report --from <role>","agentdock job finish"]},\n'
   printf '  "support": {"linux":"supported", "macos":"supported with Bash 4+ and tmux", "windows":"WSL-only/unsupported native"},\n'
   printf '  "org": {"model": "CEO -> department bay -> role", "zones": ['
   local zones=("CEO Office" "Product Bay" "Engineering Bay" "Quality Bay" "Delivery Bay" "Blocker Desk" "Report Desk")
@@ -3201,9 +3506,88 @@ workspace_snapshot_json() {
     json_string "$zone"
   done
   printf ']},\n'
+  printf '  "team_plan": {"coordinator": '; json_string "$coordinator"; printf ', "selected_roles": ['
+  first=1
+  for role in $selected; do
+    [[ "$first" == 1 ]] || printf ', '
+    first=0
+    json_string "$role"
+  done
+  printf '], "required_worker_reports": %s, "submitted_worker_reports": %s, "recommendations": [' "$selected_worker_count" "$submitted_count"
+  first=1
+  if [[ -n "$job_request_for_recommendations" ]]; then
+    local rec_template rec_display rec_department rec_archetype rec_score rec_reason
+    while IFS=$'\t' read -r rec_template rec_display rec_department rec_archetype rec_score rec_reason; do
+      [[ -n "$rec_template" ]] || continue
+      [[ "$first" == 1 ]] || printf ', '
+      first=0
+      printf '{"template_id": '; json_string "$rec_template"
+      printf ', "display_name": '; json_string "$rec_display"
+      printf ', "department": '; json_string "$rec_department"
+      printf ', "archetype": '; json_string "$rec_archetype"
+      printf ', "score": %s' "${rec_score:-0}"
+      printf ', "reason": '; json_string "$rec_reason"
+      printf '}'
+    done < <(agency_recommend_templates "$root" "$job_request_for_recommendations" 6 text)
+  fi
+  printf '], "policy": "reuse configured/running roles first; recruit missing capabilities only; one report per selected non-coordinator task role"},\n'
+  printf '  "tfts": ['
+  first=1
+  if [[ -n "$job_dir" && -f "$team_path" ]]; then
+    while IFS= read -r tft_line; do
+      [[ -n "$tft_line" ]] || continue
+      local tft_raw tft_name tft_members tft_goal tft_status member_token member_first
+      tft_raw="${tft_line#*TFT:}"
+      tft_raw="$(printf '%s' "$tft_raw" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+      tft_name="$(printf '%s' "$tft_raw" | sed -E 's/[|;].*$//; s/[[:space:]]+$//')"
+      tft_members="$(printf '%s' "$tft_raw" | sed -nE 's/.*members?:[[:space:]]*([^|;]+).*/\1/ip' | head -1)"
+      tft_goal="$(printf '%s' "$tft_raw" | sed -nE 's/.*goal:[[:space:]]*([^|;]+).*/\1/ip' | head -1)"
+      tft_status="$(printf '%s' "$tft_raw" | sed -nE 's/.*status:[[:space:]]*([^|;]+).*/\1/ip' | head -1)"
+      [[ -n "$tft_name" ]] || continue
+      [[ -n "$tft_status" ]] || tft_status="planned"
+      [[ "$first" == 1 ]] || printf ', '
+      first=0
+      printf '{"name": '; json_string "$tft_name"; printf ', "source_path": '; json_string "$team_path"; printf ', "status": '; json_string "$tft_status"; printf ', "goal": '; json_string "$tft_goal"; printf ', "members": ['
+      member_first=1
+      if [[ -n "$tft_members" ]]; then
+        IFS=',' read -ra tft_member_tokens <<< "$tft_members"
+        for member_token in "${tft_member_tokens[@]}"; do
+          member_token="$(sanitize_id "$member_token")"
+          [[ -n "$member_token" ]] || continue
+          [[ "$member_first" == 1 ]] || printf ', '
+          member_first=0
+          json_string "$member_token"
+        done
+      fi
+      printf ']}'
+    done < <(grep -E '(^|[[:space:]])TFT:' "$team_path" 2>/dev/null | head -20)
+  fi
+  printf '],\n'
+  printf '  "history": {"active_job_id": '; json_string "$job_id"; printf ', "recent_jobs": ['
+  first=1
+  local hist_job hist_id hist_lifecycle hist_reports hist_final hist_readme hist_created hist_request hist_updated
+  if [[ -d "$root/.agent-work/07_JOBS" ]]; then
+    while IFS= read -r hist_job; do
+      [[ -d "$hist_job" ]] || continue
+      hist_id="$(basename "$hist_job")"
+      hist_readme="$hist_job/README.md"
+      hist_lifecycle="$(sed -n 's/^Status: //p' "$hist_job/LIFECYCLE.md" 2>/dev/null | head -1)"
+      [[ -n "$hist_lifecycle" ]] || hist_lifecycle="$(sed -n 's/^## Status//p' "$hist_readme" 2>/dev/null | head -1)"
+      [[ -n "$hist_lifecycle" ]] || hist_lifecycle="unknown"
+      hist_reports="$(find "$hist_job/REPORTS" -maxdepth 1 -type f -name '*.md' ! -name '*-final.md' 2>/dev/null | wc -l | tr -d ' ')"
+      hist_final="$(find "$hist_job/REPORTS" -maxdepth 1 -type f -name '*-final.md' 2>/dev/null | sort | tail -1)"
+      hist_created="$(sed -n '/^## Created/{n;p;q}' "$hist_readme" 2>/dev/null)"
+      hist_request="$(awk '/^## User request/{flag=1; next} /^## /{flag=0} flag {print}' "$hist_readme" 2>/dev/null | sed 's/^```//; s/^BEGIN_UNTRUSTED_USER_REQUEST$//; s/^END_UNTRUSTED_USER_REQUEST$//' | sed '/^$/d' | head -3 | tr '\n' ' ' | tr -cd '\11\12\15\40-\176' | cut -c1-180)"
+      hist_updated="$(date -u -d "@$(stat -c %Y "$hist_job" 2>/dev/null || printf '0')" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || printf '')"
+      [[ "$first" == 1 ]] || printf ', '
+      first=0
+      printf '{"id": '; json_string "$hist_id"; printf ', "path": '; json_string "$hist_job"; printf ', "readme_path": '; json_string "$hist_readme"; printf ', "lifecycle": '; json_string "$hist_lifecycle"; printf ', "created": '; json_string "$hist_created"; printf ', "updated_at": '; json_string "$hist_updated"; printf ', "report_count": %s, "final_report_path": ' "$hist_reports"; json_string "$hist_final"; printf ', "request_preview": '; json_string "$hist_request"; printf '}'
+    done < <(find "$root/.agent-work/07_JOBS" -maxdepth 1 -type d -name 'JOB-*' 2>/dev/null | sort | tail -8 | sort -r)
+  fi
+  printf ']},\n'
   printf '  "roles": [\n'
   first=1
-  local pane_id running_pane configured_bool selected_bool task_path latest_report department tier logical_node manager_chain status status_reason avatar source_first report_count
+  local pane_id running_pane configured_bool selected_bool task_path latest_report department tier logical_node manager_chain status status_reason avatar source_first report_count template_id agency_source agency_archetype agency_when agency_outputs agency_activity
   while IFS= read -r role; do
     [[ -n "$role" ]] || continue
     [[ "$first" == 1 ]] || printf ',\n'
@@ -3216,13 +3600,17 @@ workspace_snapshot_json() {
     task_path=""; [[ -n "$job_dir" && -f "$job_dir/TASKS/$role.md" ]] && task_path="$job_dir/TASKS/$role.md"
     latest_report=""; [[ -n "$job_dir" ]] && latest_report="$(workspace_latest_report_for_role "$job_dir" "$role")"
     report_count=0; [[ -n "$job_dir" ]] && report_count="$(workspace_report_count_for_role "$job_dir" "$role")"
-    department="$(workspace_role_department "$role")"
-    tier="$(workspace_role_tier "$role")"
+    template_id="$(workspace_role_template_id "$root" "$role")"
+    department="$(agency_role_field_or_empty "$root" "$template_id" department)"
+    [[ -n "$department" ]] || department="$(workspace_role_department "$role")"
+    tier="$(agency_role_field_or_empty "$root" "$template_id" tier)"
+    [[ -n "$tier" ]] || tier="$(workspace_role_tier "$role")"
     logical_node="$(workspace_role_logical_node "$role")"
     if [[ "$tier" == ceo ]]; then manager_chain="[]"; else manager_chain="[\"$coordinator\"]"; fi
     status="$(workspace_role_status "$selected_bool" "$pane_id" "$task_path" "$latest_report")"
     status_reason="$(workspace_role_status_reason "$selected_bool" "$pane_id" "$task_path" "$latest_report")"
-    avatar="$(workspace_role_avatar "$role")"
+    avatar="$(agency_role_field_or_empty "$root" "$template_id" visual.avatar)"
+    [[ -n "$avatar" ]] || avatar="$(workspace_role_avatar "$role")"
     printf '    {'
     printf '"id": '; json_string "$role"; printf ', "role_id": '; json_string "$role"; printf ', '
     printf '"configured": %s, "selected": %s, "running_pane": %s, ' "$configured_bool" "$selected_bool" "$running_pane"
@@ -3235,6 +3623,22 @@ workspace_snapshot_json() {
     printf '"manager_chain": %s, ' "$manager_chain"
     printf '"status": '; json_string "$status"; printf ', '
     printf '"status_reason": '; json_string "$status_reason"; printf ', '
+    printf '"template_id": '; json_string "$template_id"; printf ', '
+    if [[ -n "$template_id" ]]; then
+      agency_source="$(agency_role_field_or_empty "$root" "$template_id" source)"
+      agency_archetype="$(agency_role_field_or_empty "$root" "$template_id" archetype)"
+      agency_when="$(agency_role_field_or_empty "$root" "$template_id" when_to_use)"
+      agency_outputs="$(agency_role_field_or_empty "$root" "$template_id" outputs)"
+      agency_activity="$(agency_role_field_or_empty "$root" "$template_id" visual.activity)"
+      printf '"agency_profile": {'
+      printf '"template_id": '; json_string "$template_id"; printf ', '
+      printf '"source": '; json_string "$agency_source"; printf ', '
+      printf '"archetype": '; json_string "$agency_archetype"; printf ', '
+      printf '"when_to_use": '; json_string "$agency_when"; printf ', '
+      printf '"outputs": '; json_string "$agency_outputs"; printf ', '
+      printf '"activity": '; json_string "$agency_activity"
+      printf '}, '
+    fi
     printf '"source_paths": ['
     source_first=1
     if [[ -n "$task_path" ]]; then [[ "$source_first" == 1 ]] || printf ', '; source_first=0; json_string "$task_path"; fi

@@ -23,6 +23,15 @@ export interface WorkspaceRole {
   latest_report_path?: string;
   status?: WorkspaceRoleStatus | string;
   status_reason?: string;
+  template_id?: string;
+  agency_profile?: {
+    template_id?: string;
+    source?: string;
+    archetype?: string;
+    when_to_use?: string;
+    outputs?: string;
+    activity?: string;
+  };
   source_paths?: string[];
   avatar?: {
     style?: string;
@@ -69,6 +78,7 @@ export interface WorkspaceSnapshot {
     required?: number;
     submitted_selected_roles?: number;
     required_selected_roles?: number;
+    selected_roles?: number;
     missing_roles?: string[];
     total?: number;
   };
@@ -85,6 +95,42 @@ export interface WorkspaceSnapshot {
     role_count?: number;
     density?: string;
     density_thresholds?: Record<string, number>;
+  };
+  team_plan?: {
+    coordinator?: string;
+    selected_roles?: string[];
+    required_worker_reports?: number;
+    submitted_worker_reports?: number;
+    recommendations?: Array<{
+      template_id?: string;
+      display_name?: string;
+      department?: string;
+      archetype?: string;
+      score?: number;
+      reason?: string;
+    }>;
+    policy?: string;
+  };
+  tfts?: Array<{
+    name: string;
+    source_path?: string;
+    status?: string;
+    members?: string[];
+    goal?: string;
+  }>;
+  history?: {
+    active_job_id?: string;
+    recent_jobs?: Array<{
+      id: string;
+      path?: string;
+      readme_path?: string;
+      lifecycle?: string;
+      created?: string;
+      updated_at?: string;
+      report_count?: number;
+      final_report_path?: string;
+      request_preview?: string;
+    }>;
   };
   events?: unknown[];
 }

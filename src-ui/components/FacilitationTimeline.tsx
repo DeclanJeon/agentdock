@@ -5,11 +5,11 @@ import type { WorkspaceMode } from '../model/scene';
 export function FacilitationTimeline({ snapshot, mode }: { snapshot: WorkspaceSnapshot; mode: WorkspaceMode }) {
   const steps = deriveFacilitationTimeline(snapshot, mode);
   return (
-    <section className="facilitation-timeline progress-strip" aria-label="Facilitation timeline">
+    <section className="facilitation-timeline timeline-progress-strip" aria-label="Facilitation timeline">
       <div className="timeline-strip-heading">
-        <p className="eyebrow">운영 타임라인</p>
-        <h2>Facilitation Timeline</h2>
-        <p>Snapshot-only progress · blocked/done/active/pending semantics preserved.</p>
+        <p className="eyebrow">Progress</p>
+        <h2>진행 흐름</h2>
+        <p>Snapshot-only · active, done, blocked, pending.</p>
       </div>
       <ol className="timeline-strip">
         {steps.map((step) => (

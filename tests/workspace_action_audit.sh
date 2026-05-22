@@ -25,19 +25,18 @@ fi
 python3 - <<'PY'
 from pathlib import Path
 app = Path('src-ui/App.tsx').read_text(encoding='utf-8')
-scene_idx = app.find('<OfficeScene')
-classic_idx = app.find('classic-workspace-layout')
-if scene_idx < 0:
+if app.find('<OfficeScene') < 0:
     raise SystemExit('OfficeScene render call missing')
-for marker in ['<ActionAuditPanel', '<InterventionPanel']:
+sidecar = app.find('sidecar-auxiliary')
+if sidecar < 0:
+    raise SystemExit('sidecar auxiliary dock missing')
+for marker in ['<ActionAuditPanel', '<JobHistoryPanel', '<InterventionPanel']:
     idx = app.find(marker)
     if idx < 0:
         raise SystemExit(f'{marker} render call missing')
-    if idx < scene_idx:
-        raise SystemExit(f'{marker} renders before OfficeScene; auxiliary panels must not dominate first screen')
-    if classic_idx >= 0 and idx < classic_idx:
-        raise SystemExit(f'{marker} renders before classic workspace; auxiliary panels must remain secondary')
-print('audit/intervention secondary placement contract ok')
+    if idx < sidecar:
+        raise SystemExit(f'{marker} must remain inside the secondary sidecar auxiliary dock')
+print('audit/history/intervention sidecar placement contract ok')
 PY
 
 python3 - <<'PY'
@@ -53,10 +52,10 @@ PY
 python3 - <<'PY'
 from pathlib import Path
 text = Path('src-ui/components/InterventionPanel.tsx').read_text(encoding='utf-8')
-for forbidden in ['agentdock job finish', 'agentdock role send', 'agentdock recruit', 'agentdock broadcast']:
-    if forbidden in text:
-        raise SystemExit(f'intervention panel exposes forbidden direct command copy: {forbidden}')
-print('intervention panel forbidden command copy absent')
+for marker in ['agentdock_job_followup', 'agentdock_team_broadcast', 'agentdock_role_send', 'agentdock_recruit_preview', 'agentdock_recruit_role', 'agentdock_task_proposal', 'agentdock_job_report', 'agentdock_finish_preview', 'agentdock_job_finish']:
+    if marker not in text:
+        raise SystemExit(f'intervention panel missing controlled action marker: {marker}')
+print('intervention panel controlled action markers present')
 PY
 
 echo "workspace action audit ok"

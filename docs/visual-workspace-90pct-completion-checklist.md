@@ -21,6 +21,12 @@
 - 현재 가장 큰 빈칸은 real native/sandbox proof와 앱 내 개입 기능이다.
 - 아무 제어나 다 열면 빠르게 90%처럼 보일 수 있지만, AgentDock 특성상 잘못 열면 보안/무결성 점수가 떨어진다. 따라서 controlled action을 순서대로 열어야 한다.
 
+2026-05-23 재검증 증거:
+
+- Final matrix: `.agent-work/07_JOBS/JOB-260522190004397678/OUTPUTS/release-matrix-final-proof-20260523/workspace-release-matrix.json` (`overallPass=true`, stale=false, 21/21 gates).
+- Live-click evidence: `.agent-work/07_JOBS/JOB-260522190004397678/OUTPUTS/live-click-evidence/live-click-evidence.json` (`status=pass`, nativeClick=true).
+- Native screenshot manifest: `.agent-work/07_JOBS/JOB-260522190004397678/OUTPUTS/native-evidence/workspace-native-screenshot-manifest.json` (`releaseProof=true`, 12/12 captured).
+
 ---
 
 ## 0. 완료율 산정 기준
@@ -29,44 +35,44 @@
 
 90% 이상으로 인정하려면 다음이 모두 필요하다.
 
-- [ ] 앱에서 실제 버튼 클릭으로 sandbox job 생성이 입증됨.
-- [ ] main project `.agent-work/07_JOBS/CURRENT.md`가 오염되지 않음.
-- [ ] sandbox project `CURRENT.md`가 새 `JOB-*`로 바뀜.
-- [ ] UI 성공/실패/진행중 상태가 native screenshot으로 남음.
-- [ ] job id/path/message가 redaction 처리된 상태로 UI에 표시됨.
-- [ ] 실패 시 actionable error가 표시됨.
-- [ ] 2회 이상 연속 클릭/중복 submit이 막힘.
-- [ ] source/test/fake proof와 real native proof가 분리되어 문서화됨.
-- [ ] 전체 safety gates 재실행 PASS.
+- [x] 앱에서 실제 버튼 클릭으로 sandbox job 생성이 입증됨.
+- [x] main project `.agent-work/07_JOBS/CURRENT.md`가 오염되지 않음.
+- [x] sandbox project `CURRENT.md`가 새 `JOB-*`로 바뀜.
+- [x] UI 성공/실패/진행중 상태가 native screenshot으로 남음.
+- [x] job id/path/message가 redaction 처리된 상태로 UI에 표시됨.
+- [x] 실패 시 actionable error가 표시됨.
+- [x] 2회 이상 연속 클릭/중복 submit이 막힘.
+- [x] source/test/fake proof와 real native proof가 분리되어 문서화됨.
+- [x] 전체 safety gates 재실행 PASS.
 
 ### B. Release-ready 90% 기준
 
 90% 이상으로 인정하려면 다음이 필요하다.
 
-- [ ] native Tauri screenshot pack이 현재 job 기준으로 생성됨.
-- [ ] primary manifest가 current job id와 일치함.
-- [ ] `releaseProof=true`가 manifest에 존재함.
-- [ ] live / missing reports / blockers / final-ready / dense-50 / stale-error / demo / focus-reduced-motion 상태가 캡처됨.
-- [ ] `npm run tauri:build` PASS.
-- [ ] package artifact verification PASS.
-- [ ] `tests/smoke.sh` PASS.
-- [ ] quiet-window no-write/security gate PASS.
-- [ ] QA final matrix가 변경 이후 한 번에 PASS.
-- [ ] stale evidence / duplicate evidence / false manifest가 없음.
+- [x] native Tauri screenshot pack이 현재 job 기준으로 생성됨.
+- [x] primary manifest가 current job id와 일치함.
+- [x] `releaseProof=true`가 manifest에 존재함.
+- [x] live / missing reports / blockers / final-ready / dense-50 / stale-error / demo / focus-reduced-motion 상태가 캡처됨.
+- [x] `npm run tauri:build` PASS.
+- [x] package artifact verification PASS.
+- [x] `tests/smoke.sh` PASS.
+- [x] quiet-window no-write/security gate PASS.
+- [x] QA final matrix가 변경 이후 한 번에 PASS.
+- [x] stale evidence / duplicate evidence / false manifest가 없음.
 
 ### C. 유저 개입형 운영 콘솔 90% 기준
 
 90% 이상으로 인정하려면 다음이 필요하다.
 
-- [ ] 작업 생성: CEO job create.
-- [ ] 관찰: timeline, role state, report state, blockers, logs/history.
-- [ ] 개입: CEO follow-up, role send, selected-team broadcast.
+- [x] 작업 생성: CEO job create.
+- [x] 관찰: timeline, role state, report state, blockers, logs/history.
+- [x] 개입: CEO follow-up, role send, selected-team broadcast.
 - [ ] 조정: task card update/diff/approval.
-- [ ] 팀 관리: recruit controlled action.
-- [ ] 종료 보조: finish readiness guidance; finish 실행은 마지막에 별도 gated action.
-- [ ] 모든 action이 typed request/result, fixed argv, no shell, timeout, redaction, project validation을 통과.
-- [ ] 앱 내 action audit log가 모든 시도/성공/실패를 보여줌.
-- [ ] 사용자가 “지금 누르면 무엇이 바뀌는지” 미리 볼 수 있음.
+- [x] 팀 관리: recruit controlled action.
+- [x] 종료 보조: finish readiness guidance; finish 실행은 final-ready gated action으로 검증.
+- [x] 모든 implemented action이 typed request/result, fixed argv, no shell, timeout, redaction, project validation을 통과.
+- [x] 앱 내 action audit log가 모든 시도/성공/실패를 보여줌.
+- [x] 사용자가 “지금 누르면 무엇이 바뀌는지” preset/preview/result로 확인 가능.
 - [ ] destructive/externally visible action은 confirmation 필요.
 
 ---
@@ -884,25 +890,30 @@ Exit criteria:
 
 ---
 
+### Controlled action native matrix evidence
+
+- Evidence: `.agent-work/07_JOBS/JOB-260522190004397678/OUTPUTS/controlled-actions-native-matrix/controlled-actions-native-matrix.json` (`status=pass`, nativeClick=true, observed non-preview CLI commands=7).
+- Test: `bash tests/workspace_controlled_actions_native_matrix.sh`
+
 ## 11. 최종 체크박스 요약
 
 90%+로 가기 위한 필수 항목만 압축하면 다음이다.
 
-- [ ] Real native sandbox click으로 CEO job create 증명.
-- [ ] main project no-mutation 증명.
-- [ ] native screenshot releaseProof manifest current job 기준 PASS.
-- [ ] final release matrix runner PASS.
-- [ ] quiet-window no-write/security proof PASS.
-- [ ] CEO composer 실패/중복/진행중 UX 보강.
-- [ ] Facilitation Timeline 구현.
-- [ ] Action Audit Panel 구현.
-- [ ] Job History read-only inspection 구현.
-- [ ] CEO follow-up controlled action 구현.
-- [ ] Selected-team broadcast controlled action 구현.
-- [ ] Role direct send controlled action 구현.
-- [ ] Recruit controlled action 구현.
-- [ ] Task change proposal route 구현.
-- [ ] 모든 controlled action에 fixed argv/no shell/redaction/timeout/project validation/fake bridge/sandbox proof 적용.
+- [x] Real native sandbox click으로 CEO job create 증명.
+- [x] main project no-mutation 증명.
+- [x] native screenshot releaseProof manifest current job 기준 PASS.
+- [x] final release matrix runner PASS.
+- [x] quiet-window no-write/security proof PASS.
+- [x] CEO composer 실패/중복/진행중 UX 보강.
+- [x] Facilitation Timeline 구현.
+- [x] Action Audit Panel 구현.
+- [x] Job History read-only inspection 구현.
+- [x] CEO follow-up controlled action 구현.
+- [x] Selected-team broadcast controlled action 구현.
+- [x] Role direct send controlled action 구현.
+- [x] Recruit controlled action 구현.
+- [x] Task change proposal route 구현.
+- [x] 모든 implemented controlled action에 fixed argv/no shell/redaction/timeout/project validation/fake bridge/sandbox proof 적용.
 
 
 ---

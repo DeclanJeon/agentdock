@@ -1,5 +1,5 @@
 import { redactText } from './snapshot';
-import type { JobCreateResult } from './actions';
+import type { ControlledActionResult, JobCreateResult } from './actions';
 
 export type AuditStatus = 'attempt' | 'success' | 'failure' | 'partial';
 
@@ -43,5 +43,19 @@ export function completeJobCreateAudit(event: ActionAuditEvent, result: JobCreat
     resultSummary: previewText(result.message || result.stderr || result.stdout || result.errorKind || (result.ok ? 'ok' : 'failed')),
     jobId: result.jobId,
     jobPath: result.jobPath,
+  };
+}
+
+
+export function completeControlledActionAudit(event: ActionAuditEvent, result: ControlledActionResult): ActionAuditEvent {
+  const completedAt = new Date().toISOString();
+  const started = Date.parse(event.startedAt);
+  const completed = Date.parse(completedAt);
+  return {
+    ...event,
+    status: result.ok ? 'success' : 'failure',
+    completedAt,
+    durationMs: Number.isFinite(started) ? Math.max(0, completed - started) : result.durationMs,
+    resultSummary: previewText(result.message || result.stderr || result.stdout || result.errorKind || (result.ok ? 'ok' : 'failed')),
   };
 }

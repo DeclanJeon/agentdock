@@ -46,7 +46,7 @@ export function deriveFacilitationTimeline(snapshot: WorkspaceSnapshot, mode: Wo
   const blocked = hasBlockers(snapshot);
   const finalReady = Boolean(snapshot.job?.final_ready) && missing === 0 && !blocked;
   const complete = (snapshot.job?.lifecycle_status ?? snapshot.job?.lifecycle ?? '').toLowerCase().includes('complete');
-  const modePrefix = mode === 'live' ? 'Live' : mode === 'stale' ? 'Stale last-good' : mode === 'error' ? 'Error fallback' : 'Demo fallback';
+  const modePrefix = mode === 'live' ? 'Live' : mode === 'stale' ? 'Stale last-good' : mode === 'error' ? 'Error fallback' : 'No live snapshot';
 
   const steps: TimelineStep[] = [
     { id: 'intake', label: 'Intake', state: jobPresent ? 'done' : 'active', evidenceCount: jobPresent ? 1 : 0, note: jobPresent ? `Active job ${snapshot.job?.id ?? 'loaded'}` : `${modePrefix}: waiting for active job` },

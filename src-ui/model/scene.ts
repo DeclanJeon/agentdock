@@ -1,7 +1,7 @@
 import type { WorkspaceAlert, WorkspaceRole, WorkspaceSnapshot } from './snapshot';
 import { normalizeBlockers, reportState, reportStateForRole, roleActivityLabel, statusLabel } from './normalize';
 
-export type WorkspaceMode = 'demo' | 'live' | 'stale' | 'error';
+export type WorkspaceMode = 'idle' | 'live' | 'stale' | 'error';
 export type VisualWorkspaceMode = 'classic' | 'pixelOffice';
 export type ZoneId = 'command' | 'mission' | 'build' | 'design' | 'qa' | 'report' | 'blocker' | 'bench' | 'utility';
 export type RoleArchetype = 'orchestrator' | 'product' | 'ux' | 'developer' | 'architect' | 'qa' | 'delivery' | 'generic';
@@ -142,14 +142,14 @@ function stationLabel(archetype: RoleArchetype): string {
 
 function derivePose(state: SceneRoleState): string {
   const poses: Record<SceneRoleState, string> = {
-    working: 'typing', reported: 'stamped', 'report-needed': 'holding-report', blocked: 'raised-hand', offline: 'dimmed', bench: 'standby', assigned: 'reading-task', unknown: 'idle',
+    working: 'typing', reported: 'stamped', 'report-needed': 'holding-report', blocked: 'needs-help', offline: 'dimmed', bench: 'standby', assigned: 'reading-task', unknown: 'idle',
   };
   return poses[state];
 }
 
 function deriveBadge(state: SceneRoleState): string {
   const badges: Record<SceneRoleState, string> = {
-    working: '작업 중', reported: '보고 완료', 'report-needed': '보고 필요', blocked: '막힘', offline: '오프라인', bench: '대기', assigned: '배정됨', unknown: '상태 불명',
+    working: '작업 중', reported: '보고 완료', 'report-needed': '보고 필요', blocked: '블로커', offline: '오프라인', bench: '대기', assigned: '배정됨', unknown: '상태 불명',
   };
   return badges[state];
 }
@@ -176,7 +176,7 @@ function deriveVisualUrgency(state: SceneRoleState, report: SceneRole['reportSta
 
 function deriveRecentEventLabel(role: WorkspaceRole, state: SceneRoleState, report: SceneRole['reportState']): string {
   if (role.status_reason) return role.status_reason;
-  if (state === 'blocked') return 'Blocker card linked to this station';
+  if (state === 'blocked') return '블로커가 연결되어 있습니다. Alerts/Inspector에서 원인과 다음 액션을 확인하세요';
   if (report === 'report needed') return 'Selected role still needs a report';
   if (report === 'reported') return 'Latest report is on file';
   if (role.latest_report_path) return 'Report artifact available';
@@ -253,7 +253,7 @@ export function deriveSceneModel(snapshot: WorkspaceSnapshot, options: { mode: W
       readOnly: true,
       jobId: snapshot.job?.id ?? 'no-active-job',
       lifecycle: snapshot.job?.lifecycle ?? snapshot.job?.lifecycle_status ?? 'unknown',
-      freshnessLabel: options.mode === 'live' ? 'Live snapshot' : options.mode === 'demo' ? 'Demo snapshot' : options.mode === 'stale' ? 'Stale last-good snapshot' : 'Snapshot error fallback',
+      freshnessLabel: options.mode === 'live' ? 'Live snapshot' : options.mode === 'idle' ? 'No live snapshot yet' : options.mode === 'stale' ? 'Stale last-good snapshot' : 'Snapshot error fallback',
     },
     office: { density, zones, roleCount: roles.length, selectedCount: selectedRoles.length },
     roles,

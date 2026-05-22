@@ -14,6 +14,10 @@ fail() { echo "workspace desktop app test failed: $*" >&2; exit 1; }
 [[ -f src-ui/model/normalize.ts ]] || fail "src-ui/model/normalize.ts missing"
 [[ -f src-ui/model/scene.ts ]] || fail "src-ui/model/scene.ts missing"
 [[ -f src-ui/model/fixtures.ts ]] || fail "src-ui/model/fixtures.ts missing"
+grep -q "emptySnapshot" src-ui/model/fixtures.ts || fail "empty live snapshot fallback missing"
+if grep -q "demoSnapshot\|workspace.snapshot.demo" src-ui/model/fixtures.ts src-ui/App.tsx; then
+  fail "desktop app must not render bundled mock/demo roles when live snapshot is unavailable"
+fi
 [[ -f src-ui/components/FinalReadinessPanel.tsx ]] || fail "FinalReadinessPanel missing"
 [[ -f src-ui/components/ReportDesk.tsx ]] || fail "ReportDesk missing"
 [[ -f src-ui/components/BlockerDesk.tsx ]] || fail "BlockerDesk missing"
@@ -39,6 +43,8 @@ grep -q 'agentdock-workspace' <<<"$workspace_app_help" || fail "workspace app he
 python3 tests/fixtures/workspace/validate_workspace_fixtures.py
 
 grep -q 'workspace_snapshot' src-tauri/src/lib.rs || fail "Tauri adapter missing workspace_snapshot command"
+grep -q 'workspace_watch_start' src-tauri/src/lib.rs || fail "Tauri adapter missing live workspace watch command"
+grep -q 'workspace_changed' src-tauri/src/lib.rs || fail "Tauri adapter missing workspace changed event"
 grep -q 'agentdock_job_create' src-tauri/src/lib.rs || fail "Tauri adapter missing controlled job-create command"
 grep -q 'Command::new' src-tauri/src/lib.rs || fail "Tauri adapter must use structured command execution"
 grep -q 'FinalReadinessPanel' src-ui/components/PixelOffice.tsx || fail "PixelOffice missing final readiness decision surface"
@@ -59,10 +65,12 @@ grep -q 'SUPPORTED_SCHEMA_VERSION' src-ui/model/snapshot.ts || fail "React model
 grep -q 'isSupportedSnapshot' src-ui/model/snapshot.ts || fail "React model missing supported schema guard"
 grep -q 'Unsupported snapshot schema' src-ui/App.tsx || fail "React app missing unsupported schema error handling"
 grep -q "'live'" src-ui/App.tsx || fail "React app missing live mode"
-grep -q "'demo'" src-ui/App.tsx || fail "React app missing demo mode"
+grep -q "'idle'" src-ui/App.tsx || fail "React app missing idle/not-connected mode"
 grep -q "'stale'" src-ui/App.tsx || fail "React app missing stale mode"
 grep -q "'error'" src-ui/App.tsx || fail "React app missing error mode"
 grep -q 'Refresh snapshot' src-ui/App.tsx || fail "React app missing manual refresh button"
+grep -q 'workspace_watch_start' src-ui/App.tsx || fail "React app missing live watch startup"
+grep -q 'workspace_changed' src-ui/App.tsx || fail "React app missing workspace changed event listener"
 grep -q 'refreshInFlight' src-ui/App.tsx || fail "React app missing in-flight refresh guard"
 grep -q 'lastGoodSnapshot' src-ui/App.tsx || fail "React app missing last-good snapshot preservation"
 grep -q 'ErrorStrip' src-ui/App.tsx || fail "React app missing ErrorStrip component"

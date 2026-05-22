@@ -7,7 +7,7 @@ function characterSrc(roleId: string): string {
   let hash = 0;
   for (const char of roleId) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
   const index = String((hash % characterCount) + 1).padStart(2, '0');
-  return `/workspace-characters/character-${index}.gif`;
+  return `/workspace-characters-v2/character-${index}.gif`;
 }
 
 export function AgentCharacter({ role, selected, onSelect }: { role: WorkspaceRole; selected: boolean; onSelect: (role: WorkspaceRole) => void }) {

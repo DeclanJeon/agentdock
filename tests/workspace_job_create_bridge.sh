@@ -19,7 +19,20 @@ fi
 python3 - <<'PY'
 import re
 from pathlib import Path
-allowed = {'workspace_snapshot', 'agentdock_job_create'}
+allowed = {
+    'workspace_snapshot',
+    'workspace_watch_start',
+    'agentdock_job_create',
+    'agentdock_job_followup',
+    'agentdock_team_broadcast',
+    'agentdock_role_send',
+    'agentdock_recruit_preview',
+    'agentdock_recruit_role',
+    'agentdock_task_proposal',
+    'agentdock_job_report',
+    'agentdock_finish_preview',
+    'agentdock_job_finish',
+}
 bad = []
 for path in Path('src-ui').rglob('*'):
     if path.suffix not in {'.ts', '.tsx'}:

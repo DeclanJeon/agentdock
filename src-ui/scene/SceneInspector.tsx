@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { SceneModel, SceneRole } from '../model/scene';
 import type { WorkspaceSnapshot } from '../model/snapshot';
 
@@ -11,6 +12,7 @@ function taskRows(role: SceneRole) {
 }
 
 export function SceneInspector({ snapshot, role, scene }: { snapshot: WorkspaceSnapshot; role?: SceneRole; scene?: SceneModel }) {
+  const [activeTab, setActiveTab] = useState<'tasks' | 'details' | 'files' | 'logs'>('tasks');
   if (!role) {
     return (
       <aside className="scene-inspector reference-inspector" aria-label="Scene inspector">
@@ -43,24 +45,59 @@ export function SceneInspector({ snapshot, role, scene }: { snapshot: WorkspaceS
       </section>
 
       <div className="inspector-tabs" role="tablist" aria-label="Read-only role detail tabs">
-        <button type="button" role="tab" aria-selected="true">Tasks ({tasks.length})</button>
-        <button type="button" role="tab" aria-selected="false">Details</button>
-        <button type="button" role="tab" aria-selected="false">Files</button>
-        <button type="button" role="tab" aria-selected="false">Logs</button>
+        <button type="button" role="tab" aria-selected={activeTab === 'tasks'} onClick={() => setActiveTab('tasks')}>Tasks ({tasks.length})</button>
+        <button type="button" role="tab" aria-selected={activeTab === 'details'} onClick={() => setActiveTab('details')}>Details</button>
+        <button type="button" role="tab" aria-selected={activeTab === 'files'} onClick={() => setActiveTab('files')}>Files</button>
+        <button type="button" role="tab" aria-selected={activeTab === 'logs'} onClick={() => setActiveTab('logs')}>Logs</button>
       </div>
 
-      <section className="task-card-list" aria-label="Read-only task cards">
-        {tasks.map((task) => (
-          <article className="inspector-task-card" key={task.id}>
-            <span aria-hidden="true">▣</span>
-            <div>
-              <strong>{task.title}</strong>
-              <small>ID: {task.id}</small>
+      {activeTab === 'tasks' ? (
+        <section className="task-card-list" aria-label="Read-only task cards">
+          {tasks.map((task) => (
+            <article className="inspector-task-card" key={task.id}>
+              <span aria-hidden="true">▣</span>
+              <div>
+                <strong>{task.title}</strong>
+                <small>ID: {task.id}</small>
+              </div>
+              <em className={`task-status ${task.status === '보고 완료' ? 'good' : task.status === '차단됨' ? 'bad' : 'warn'}`}>{task.status}</em>
+            </article>
+          ))}
+        </section>
+      ) : activeTab === 'details' ? (
+        <section className="inspector-section" aria-label="Role details">
+          <h3>Details</h3>
+          <dl>
+            <dt>Role id</dt><dd>{role.id}</dd>
+            <dt>Department</dt><dd>{role.role.department ?? 'General'}</dd>
+            <dt>Tier</dt><dd>{role.role.tier ?? 'Team Member'}</dd>
+            <dt>Template</dt><dd>{role.role.template_id ?? 'configured role'}</dd>
+            <dt>Pane</dt><dd>{role.role.running_pane ? role.role.pane_id ?? 'running' : 'not running'}</dd>
+          </dl>
+          {role.role.agency_profile ? (
+            <div className="agency-profile-card">
+              <strong>Agency specialist</strong>
+              <p>{role.role.agency_profile.source ?? role.role.agency_profile.template_id}</p>
+              <small>{role.role.agency_profile.when_to_use ? `Use: ${role.role.agency_profile.when_to_use}` : 'Curated agency-agents adapter'}</small>
             </div>
-            <em className={`task-status ${task.status === '보고 완료' ? 'good' : task.status === '차단됨' ? 'bad' : 'warn'}`}>{task.status}</em>
-          </article>
-        ))}
-      </section>
+          ) : null}
+        </section>
+      ) : activeTab === 'files' ? (
+        <section className="inspector-section" aria-label="Role files">
+          <h3>Files</h3>
+          <ul className="inspector-file-list">
+            {[role.role.task_path, role.role.latest_report_path, ...(role.role.source_paths ?? [])].filter(Boolean).map((path) => <li key={path}><code>{path}</code></li>)}
+          </ul>
+        </section>
+      ) : (
+        <section className="inspector-section" aria-label="Workspace logs">
+          <h3>Logs</h3>
+          <ul className="inspector-file-list">
+            {(snapshot.events ?? []).slice(-8).map((event, index) => <li key={`${index}-${String(event)}`}>{String(event)}</li>)}
+            {(snapshot.events ?? []).length === 0 ? <li>No recent broadcast events in snapshot.</li> : null}
+          </ul>
+        </section>
+      )}
 
       <section className="inspector-section role-summary" aria-label="Role summary">
         <h3>Role Summary</h3>

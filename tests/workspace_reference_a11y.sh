@@ -26,7 +26,7 @@ grep -q 'aria-pressed={selected}' src-ui/scene/RoleStation.tsx || fail "role sta
 grep -q 'tabIndex=' src-ui/scene/RoleStation.tsx || fail "role station focus order must be explicit for dense scenes"
 
 grep -q 'role="tablist"' src-ui/scene/SceneInspector.tsx || fail "inspector tabs must expose tablist role"
-grep -q 'aria-selected="true"' src-ui/scene/SceneInspector.tsx || fail "inspector selected tab missing"
+grep -q 'aria-selected={activeTab ===' src-ui/scene/SceneInspector.tsx || fail "inspector selected tab missing"
 grep -q 'aria-label="Read-only task cards"' src-ui/scene/SceneInspector.tsx || fail "task list a11y label missing"
 
 grep -q ':focus-visible' src-ui/styles.css || fail "visible keyboard focus CSS missing"

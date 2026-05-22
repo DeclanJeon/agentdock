@@ -1,8 +1,8 @@
 # Workspace Snapshot UI Contract
 
-Status: initial 95% contract for the React + Tauri Visual Workspace.
+Status: controlled-actions contract for the React + Tauri Visual Workspace.
 Primary source of truth: `agentdock workspace snapshot --json` plus `.agent-work` files read by the CLI.
-Runtime boundary: read-only desktop app. The UI and Tauri adapter must not expose a write bridge, arbitrary command bridge, job finish, report submission, recruit, inbox send, or file edit action in the 95% scope.
+Runtime boundary: controlled desktop app. The UI and Tauri adapter must not expose arbitrary shell, broad file write, direct task-file mutation, or an unrestricted command bridge. Allowed actions are fixed-argv AgentDock operations advertised by `commands.allowed_actions` and implemented one slice at a time.
 
 ## Schema identity
 
@@ -39,8 +39,9 @@ Backward compatibility rule:
 | `reports.submitted` | number | Submitted report count. | Report Desk |
 | `reports.required` | number | Required report count. | Report Desk |
 | `reports.submitted_selected_roles` | number | Submitted count among selected roles. | Report Desk |
-| `reports.required_selected_roles` | number | Required count among selected roles. | Report Desk |
-| `reports.missing_roles` | string[] | Selected roles blocking finish by missing reports. | Report Desk / role chips |
+| `reports.required_selected_roles` | number | Required count among selected non-coordinator worker roles. | Report Desk |
+| `reports.selected_roles` | number | Total selected task roles including coordinator. | Team plan/diagnostics |
+| `reports.missing_roles` | string[] | Selected non-coordinator worker roles blocking finish by missing reports. | Report Desk / role chips |
 | `roles[].id` | string | Role id used by UI selection. | Room/role lookup |
 | `roles[].role_id` | string | Backward-compatible role id alias. | Role lookup fallback |
 | `roles[].department` | string | Department/room grouping. | Office room placement |
@@ -53,9 +54,10 @@ Backward compatibility rule:
 | `layout.role_count` | number | Number of roles in snapshot. | Density logic |
 | `layout.density` | string | Snapshot-provided density (`normal`, `dense`, `crowded`). | Dense/compact controls |
 | `layout.density_thresholds` | object | Threshold hints used by UI. | Dense/compact controls |
-| `commands.mode` | string | Must remain `read-only` for 95%. | Runtime/Server Room badge |
-| `commands.write_bridge_enabled` | boolean | Must remain `false` for 95%. | Safety badge/release gate |
-| `commands.allowed_read_commands` | string[] | Read-only command hints only. | Runtime details |
+| `commands.mode` | string | `controlled-actions` when fixed-argv UI actions are available; `read-only` only for static fixture/demo modes. | Runtime/Server Room badge |
+| `commands.write_bridge_enabled` | boolean | Must remain `false`; no broad write bridge is allowed. | Safety badge/release gate |
+| `commands.allowed_read_commands` | string[] | Read-only command hints. | Runtime details |
+| `commands.allowed_actions` | string[] | Fixed-argv controlled action hints, never shell strings to execute directly. | Intervention console |
 | `alerts` | array | Blocking/warning/notice conditions. | Blocker Desk |
 | `warnings` | array | Non-blocking warnings. | Blocker Desk / Runtime details |
 
@@ -67,6 +69,10 @@ Backward compatibility rule:
 | `support` | object | Platform support matrix. | Hide platform matrix |
 | `org` | object | Organization/zones metadata. | Derive rooms from role departments |
 | `events` | array | Recent workspace events. | Empty activity rail |
+| `team_plan` | object | Coordinator, selected roles, report policy, and team-planning hints. | Intervention console / inspector |
+| `team_plan.recommendations[]` | array | Optional curated Agency specialist hints derived from the active job request; UI should treat them as suggestions, not recruited roles. | Fall back to UI-local heuristic recommendations |
+| `tfts` | array | Temporary focused teams discovered from `TEAM.md` or planner output. | Intervention console / team view |
+| `history` | object | Bounded read-only recent job summaries; must not mutate `CURRENT.md`. | JobHistoryPanel |
 | `locks` | object | Lockfile path/presence metadata. | Show lock status unknown |
 | `roles[].display` | string | Human-friendly role label. | Title-case `id` |
 | `roles[].status_reason` | string | Explanation for role status. | Generic status text |
@@ -76,6 +82,8 @@ Backward compatibility rule:
 | `roles[].tier` | string | Role tier. | Worker default |
 | `roles[].manager_chain` | string[] | Manager/orchestrator path. | Empty chain |
 | `roles[].avatar` | object | Avatar hint. | Default sprite |
+| `roles[].template_id` | string | Role template id when known, including curated `agency-*` templates. | Hide template badge |
+| `roles[].agency_profile` | object | Optional registry metadata for curated Agency roles. | Hide Agency detail card |
 | `roles[].source_paths` | string[] | Prompt/config source paths. | Hide source list |
 
 ## Canonical fields vs UI-derived fields
@@ -87,7 +95,7 @@ Canonical fields are emitted by the CLI snapshot and must be treated as source o
 - `reports.*`
 - `roles[]` identity, status, selected/configured/running/report/task fields
 - `alerts`, `warnings`
-- `commands.mode`, `commands.write_bridge_enabled`, `commands.allowed_read_commands`
+- `commands.mode`, `commands.write_bridge_enabled`, `commands.allowed_read_commands`, `commands.allowed_actions`
 - `layout.role_count`, `layout.density`, `layout.density_thresholds`
 
 UI-derived fields may be computed by React from canonical fields and fixtures:
@@ -122,6 +130,7 @@ Required fixture set:
 
 Fixture safety rules:
 - Fixtures are static JSON; validation does not shell out or mutate project state.
-- Fixture `commands.mode` must be `read-only`.
+- Static read-only fixtures may use `commands.mode=read-only`; live controlled fixtures use `commands.mode=controlled-actions`.
 - Fixture `commands.write_bridge_enabled` must be `false`.
-- Fixture `allowed_read_commands` must not advertise finish/report/send/recruit/edit/exec actions.
+- `allowed_read_commands` must not advertise finish/report/send/recruit/edit/exec actions.
+- `allowed_actions` may advertise only fixed AgentDock argv slices such as job create, coordinator send, selected broadcast, selected-role send, recruit, role report submit, and finish gate.

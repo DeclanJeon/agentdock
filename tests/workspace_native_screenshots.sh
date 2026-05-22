@@ -9,8 +9,8 @@ MANIFEST="$OUT_DIR/workspace-native-screenshot-manifest.json"
 mkdir -p "$OUT_DIR"
 ABS_OUT_DIR="$(cd "$OUT_DIR" && pwd)"
 
-CURRENT_JOB="unknown"
-if [[ -f .agent-work/07_JOBS/CURRENT.md ]]; then
+CURRENT_JOB="${AGENTDOCK_NATIVE_SCREENSHOT_JOB_ID:-${AGENTDOCK_RELEASE_MATRIX_JOB_ID:-}}"
+if [[ -z "$CURRENT_JOB" && -f .agent-work/07_JOBS/CURRENT.md ]]; then
   CURRENT_JOB="$(python3 - <<'PY'
 from pathlib import Path
 import re
@@ -20,6 +20,7 @@ print(match.group(1) if match else 'unknown')
 PY
 )"
 fi
+[[ -n "$CURRENT_JOB" ]] || CURRENT_JOB="unknown"
 
 python3 - "$MANIFEST" "$CURRENT_JOB" "$ABS_OUT_DIR" <<'PY'
 import json, sys, datetime, os, re
@@ -39,6 +40,10 @@ required = [
   "dense-20", "dense-50-search-filter", "stale-last-good", "demo-fallback",
   "error-state", "keyboard-focus", "reduced-motion", "read-only-security",
 ]
+# Review-only screenshot IDs used by the UI contact sheet. They are not part of
+# releaseProof requiredStates, because live-click-filled is produced by the
+# native live-click evidence flow rather than the release screenshot matrix.
+review_only = ["live-click-filled"]
 manifest = {
   "schema": "workspace-native-screenshot-manifest.v1",
   "source": "native-tauri-required",
@@ -90,6 +95,8 @@ required = [
   "dense-20", "dense-50-search-filter", "stale-last-good", "demo-fallback",
   "error-state", "keyboard-focus", "reduced-motion", "read-only-security",
 ]
+# live-click-filled is intentionally captured by tests/workspace_live_click_job_create.sh
+# and consumed by tests/workspace_native_contact_sheet.sh as a review-only screenshot.
 cmd_template = os.environ["AGENTDOCK_NATIVE_SCREENSHOT_CMD"]
 for state in required:
     path = out / f"{state}.png"
