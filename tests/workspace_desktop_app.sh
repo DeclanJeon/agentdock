@@ -40,6 +40,9 @@ agentdock_help="$(./bin/agentdock help)"
 grep -q 'workspace app' <<<"$agentdock_help" || fail "agentdock help missing workspace app"
 workspace_app_help="$(./bin/agentdock workspace app --help)"
 grep -q 'agentdock-workspace' <<<"$workspace_app_help" || fail "workspace app help missing binary guidance"
+grep -q 'skip-hermes-install' <<<"$workspace_app_help" || fail "workspace app help missing Hermes auto-install opt-out"
+grep -q 'install_hermes_if_missing' install.sh || fail "install.sh missing first-install Hermes bootstrap"
+grep -q 'raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh' install.sh || fail "install.sh missing official Hermes GitHub installer URL"
 python3 tests/fixtures/workspace/validate_workspace_fixtures.py
 
 grep -q 'workspace_snapshot' src-tauri/src/lib.rs || fail "Tauri adapter missing workspace_snapshot command"

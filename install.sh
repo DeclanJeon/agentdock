@@ -2,10 +2,16 @@
 set -euo pipefail
 
 PREFIX="$HOME/.local"
+INSTALL_HERMES=1
+HERMES_INSTALL_URL="https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --prefix) PREFIX="${2:-}"; shift 2 ;;
     --prefix=*) PREFIX="${1#*=}"; shift ;;
+    --skip-hermes|--no-hermes|--skip-hermes-install|--no-hermes-install)
+      INSTALL_HERMES=0
+      shift
+      ;;
     *) shift ;;
   esac
 done
@@ -21,6 +27,32 @@ write_role_template() {
     printf 'Use: %s\n\n' "$use"
     printf 'Source: %s\n' "$source"
   } > "$file"
+}
+
+install_hermes_if_missing() {
+  if command -v hermes >/dev/null 2>&1; then
+    printf 'Hermes Agent already installed: %s\n' "$(command -v hermes)"
+    return 0
+  fi
+  if [[ "$INSTALL_HERMES" != 1 ]]; then
+    printf 'Hermes Agent install skipped. Install manually if runtime roles are needed:\n'
+    printf '  curl -fsSL %s | bash\n' "$HERMES_INSTALL_URL"
+    return 0
+  fi
+  command -v curl >/dev/null 2>&1 || {
+    printf 'curl is required to install Hermes Agent from GitHub.\n' >&2
+    printf 'Install curl, then run: curl -fsSL %s | bash\n' "$HERMES_INSTALL_URL" >&2
+    exit 1
+  }
+  printf 'Hermes Agent not found; installing from GitHub:\n'
+  printf '  curl -fsSL %s | bash\n' "$HERMES_INSTALL_URL"
+  curl -fsSL "$HERMES_INSTALL_URL" | bash
+  export PATH="$HOME/.local/bin:$PATH"
+  if command -v hermes >/dev/null 2>&1; then
+    printf 'Hermes Agent installed: %s\n' "$(command -v hermes)"
+  else
+    printf 'Hermes installer finished, but hermes is not on PATH yet. Add %s/bin or ~/.local/bin to PATH and rerun adock doctor.\n' "$PREFIX"
+  fi
 }
 
 mkdir -p "$BIN_DIR" "$SHARE_DIR/bin" "$SHARE_DIR/adapters" "$SHARE_DIR/roles/bmad" "$SHARE_DIR/roles/agentdock" "$SHARE_DIR/assets"
@@ -62,3 +94,4 @@ case ":$PATH:" in
   *":$BIN_DIR:"*) ;;
   *) printf 'Add %s to PATH if agentdock/adock is not found.\n' "$BIN_DIR" ;;
 esac
+install_hermes_if_missing

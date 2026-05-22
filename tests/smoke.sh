@@ -70,10 +70,10 @@ export PATH="$FAKE:$PATH"
 export XDG_CONFIG_HOME="$TMP/config"
 export AGENTDOCK_ADAPTER_VERSION_TIMEOUT="1s"
 tmux kill-session -t project-agents 2>/dev/null || true
-"$ROOT/bin/agentdock" version | grep -q 'agentdock 0.2.0'
+"$ROOT/bin/agentdock" version | grep -q 'agentdock 0.2.1'
 ln -sf "$ROOT/bin/agentdock" "$FAKE/adock"
 ln -sf "$ROOT/bin/agentdock" "$FAKE/adock-delegate"
-adock version | grep -q 'agentdock 0.2.0'
+adock version | grep -q 'agentdock 0.2.1'
 
 MISS="$TMP/missing-hermes"
 mkdir -p "$MISS/fakebin" "$MISS/project"

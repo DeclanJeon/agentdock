@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-AGENTDOCK_VERSION="0.2.0"
+AGENTDOCK_VERSION="0.2.1"
 DEFAULT_AGENT_CLI="hermes"
+HERMES_INSTALL_URL="https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh"
 CLI_NAME="$(basename "$0")"
 SCRIPT_PATH="${BASH_SOURCE[0]}"
 while [[ -L "$SCRIPT_PATH" ]]; do
@@ -1044,7 +1045,21 @@ install_adapter() {
     [[ "$id" == "$DEFAULT_AGENT_CLI" ]] && hermes_install_guidance >&2
     die "$id is still missing after install command. Configure the $id command, then rerun agentdock doctor."
   fi
+  unset "AGENTDOCK_DETECT_CACHE_${id//[^a-zA-Z0-9_]/_}"
   printf '%s\t%s\t%s\t%s\n' "$id" "$status" "$found" "$version"
+}
+
+ensure_hermes_installed_for_runtime() {
+  local yes="${1:-1}" status found version reason="${2:-runtime}"
+  IFS=$'\t' read -r _ status found version < <(detect_adapter "$DEFAULT_AGENT_CLI")
+  if [[ "$status" == installed ]]; then
+    return 0
+  fi
+  say "Hermes Agent is missing; installing from GitHub for AgentDock $reason."
+  install_adapter "$DEFAULT_AGENT_CLI" "" "$yes" >/dev/null
+  export PATH="$HOME/.local/bin:$PATH"
+  IFS=$'\t' read -r _ status found version < <(detect_adapter "$DEFAULT_AGENT_CLI")
+  [[ "$status" == installed ]] || die "Hermes Agent install completed, but hermes is still not detectable on PATH."
 }
 
 cmd_doctor() {
@@ -3829,14 +3844,36 @@ PY
 }
 
 cmd_workspace_app() {
-  local root="$1"
+  local root="$1" skip_hermes_install=0
   shift || true
+  local -a passthrough=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --skip-hermes-install|--no-hermes-install)
+        skip_hermes_install=1
+        shift
+        ;;
+      --help|-h|help)
+        passthrough+=("$1")
+        shift
+        ;;
+      *)
+        passthrough+=("$1")
+        shift
+        ;;
+    esac
+  done
+  set -- "${passthrough[@]}"
   case "${1:-}" in
     --help|-h|help)
       cat <<EOF
-Usage: agentdock workspace app [--project <path>]
+Usage: agentdock workspace app [--project <path>] [--skip-hermes-install]
 
 Launch the AgentDock Visual Office desktop application.
+
+If Hermes Agent is missing, this launcher installs it from GitHub using the
+official installer before opening the app. Use --skip-hermes-install to only
+show the visual workspace and defer runtime setup.
 
 Preferred installed binary:
   agentdock-workspace --project "$root"
@@ -3850,6 +3887,10 @@ EOF
       return 0
       ;;
   esac
+
+  if [[ "$skip_hermes_install" != 1 ]]; then
+    ensure_hermes_installed_for_runtime 1 "workspace app launch"
+  fi
 
   if command -v agentdock-workspace >/dev/null 2>&1; then
     exec agentdock-workspace --project "$root"

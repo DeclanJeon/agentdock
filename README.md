@@ -17,7 +17,7 @@
 <p align="center">
   <a href="https://github.com/DeclanJeon/agentdock/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/DeclanJeon/agentdock/ci.yml?branch=main&label=ci&logo=github"></a>
   <a href="https://github.com/DeclanJeon/agentdock/releases"><img alt="Release" src="https://img.shields.io/github/v/release/DeclanJeon/agentdock?label=release&logo=github"></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-0.2.0-0f766e">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.2.1-0f766e">
   <img alt="Runtime" src="https://img.shields.io/badge/runtime-Hermes%20Agent-111827">
   <img alt="Shell" src="https://img.shields.io/badge/shell-Bash-4EAA25?logo=gnubash&logoColor=white">
   <img alt="tmux" src="https://img.shields.io/badge/orchestration-tmux-1f2937">
@@ -59,7 +59,7 @@ AgentDock intentionally keeps Codex, OpenCode, Gemini, Claude, and other CLIs ou
 | Safer project isolation | New projects use a root-hash tmux session name, reducing collisions between directories with the same basename. |
 | Release/version guard | `scripts/check-version.sh` keeps `VERSION`, README, smoke tests, and release tags synchronized. |
 
-## What's New In 0.2.0
+## What's New In 0.2.1
 
 - Visual Workspace desktop app now includes a narrow CEO Task Composer controlled action: `Send to CEO` calls `agentdock job --no-attach <request>` through Tauri without a shell and refreshes the snapshot after success.
 - The desktop bridge is explicitly limited to `workspace_snapshot` plus `agentdock_job_create`; broad write bridges, arbitrary shell, recruit/send/broadcast/finish/report/task-edit UI controls remain forbidden.
@@ -100,11 +100,13 @@ AgentDock requires:
 - `git`
 - `Hermes Agent`
 
-If Hermes is missing, AgentDock prints the official installer:
+On first install, `install.sh` checks for `hermes`. If Hermes is missing, it automatically runs the official GitHub installer:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
 ```
+
+Use `./install.sh --skip-hermes` if you only want to install the AgentDock CLI and defer Hermes runtime setup. `adock workspace app` also performs the same Hermes check before launching the desktop app unless `--skip-hermes-install` is supplied.
 
 Hermes source: https://github.com/nousresearch/hermes-agent
 
@@ -399,15 +401,15 @@ bash scripts/check-version.sh
 Create a release:
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.2.1
+git push origin v0.2.1
 ```
 
 Release artifacts include `SHA256SUMS` so users can verify downloaded archives before installing.
 
 ## Status
 
-Version `0.2.0` is the current local release. It is intentionally Bash-first and conservative: no daemon, no hosted control plane, no hidden remote scheduler.
+Version `0.2.1` is the current local release. It is intentionally Bash-first and conservative: no daemon, no hosted control plane, no hidden remote scheduler.
 
 Current gaps:
 
