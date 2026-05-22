@@ -17,7 +17,7 @@
 <p align="center">
   <a href="https://github.com/DeclanJeon/agentdock/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/DeclanJeon/agentdock/ci.yml?branch=main&label=ci&logo=github"></a>
   <a href="https://github.com/DeclanJeon/agentdock/releases"><img alt="Release" src="https://img.shields.io/github/v/release/DeclanJeon/agentdock?label=release&logo=github"></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-0.1.8-0f766e">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.2.0-0f766e">
   <img alt="Runtime" src="https://img.shields.io/badge/runtime-Hermes%20Agent-111827">
   <img alt="Shell" src="https://img.shields.io/badge/shell-Bash-4EAA25?logo=gnubash&logoColor=white">
   <img alt="tmux" src="https://img.shields.io/badge/orchestration-tmux-1f2937">
@@ -58,6 +58,14 @@ AgentDock intentionally keeps Codex, OpenCode, Gemini, Claude, and other CLIs ou
 | Local-first state | Bash, tmux, Hermes Agent, and project files. No daemon, hosted scheduler, or remote control plane. |
 | Safer project isolation | New projects use a root-hash tmux session name, reducing collisions between directories with the same basename. |
 | Release/version guard | `scripts/check-version.sh` keeps `VERSION`, README, smoke tests, and release tags synchronized. |
+
+## What's New In 0.2.0
+
+- Visual Workspace desktop app now includes a narrow CEO Task Composer controlled action: `Send to CEO` calls `agentdock job --no-attach <request>` through Tauri without a shell and refreshes the snapshot after success.
+- The desktop bridge is explicitly limited to `workspace_snapshot` plus `agentdock_job_create`; broad write bridges, arbitrary shell, recruit/send/broadcast/finish/report/task-edit UI controls remain forbidden.
+- Added React + Tauri Visual Office runtime, pixel-office scene, dense-role navigation, final readiness/report/blocker surfaces, native/package evidence harnesses, and workspace fixture validation.
+- Added safety gates for no-write boundaries, job-create argv handling, secret redaction, accessibility/reference UI, visual fixtures, native screenshots, and package artifacts.
+- Added release hygiene documentation for controlled actions, workspace snapshot schema, reference UI design, and the remaining sandbox live-click proof gap.
 
 ## What's New In 0.1.8
 
@@ -278,14 +286,26 @@ Broadcast messages are truncated for pane delivery at 1200 characters by default
 
 ### Visual Workspace
 
-The Visual Workspace is a read-only observer over `.agent-work`. It exposes the active job, selected roles, report readiness, blockers, warnings, lifecycle metadata, and density hints for larger teams while preserving `.agent-work` as the source of truth.
+The Visual Workspace is a snapshot-first observer over `.agent-work` with one controlled action surface. It exposes the active job, selected roles, report readiness, blockers, warnings, lifecycle metadata, and density hints for larger teams while preserving `.agent-work` as the source of truth. The desktop app may create a CEO-led job through the narrow `agentdock job --no-attach <request>` bridge; it does not expose arbitrary shell, broad write, recruit, send, broadcast, finish, report, or task-edit controls.
 
 ```bash
+adock workspace app
 adock workspace snapshot --json
 adock workspace export --out .agent-work/11_ARCHIVE/workspace.html
 ```
 
-The snapshot schema is versioned as `workspace.snapshot.v1`. Snapshot/export output redacts common secret patterns, warns instead of failing on invalid optional workspace config, and keeps old/no-active-job states backward-compatible. HTML exports render Tamagotchi-style animated GIF character cards for roles, include accessibility labels, and use role button semantics for visual review.
+`adock workspace app` launches the AgentDock Visual Office desktop application. The full command is `agentdock workspace app`; `adock` is the short alias. The app is a React + Tauri shell: it opens as a desktop window, reads `.agent-work` through the existing `agentdock workspace snapshot --json` contract, and renders role state as a pixel-office map with characters in rooms. It is not a browser HTML export flow.
+
+For development from this repository:
+
+```bash
+npm install
+npm run tauri:dev
+```
+
+The snapshot schema is versioned as `workspace.snapshot.v1`. Snapshot/export output redacts common secret patterns, warns instead of failing on invalid optional workspace config, and keeps old/no-active-job states backward-compatible. HTML exports render Tamagotchi-style animated GIF character cards for roles, include accessibility labels, and use role button semantics for portable visual review only; the primary workspace runtime is the desktop app.
+
+Native release evidence is stricter than source/build success: the final job must keep a primary native screenshot manifest with `releaseProof=true`, 12/12 required states captured, and a release matrix that asserts that condition. `AGENTDOCK_NATIVE_EVIDENCE_CAPTURE=1` is a screenshot-capture-only mode used by the evidence harness to focus the Tauri window; default app runtime is unchanged when the variable is unset.
 
 Export path policy is intentionally conservative: archive-style workspace exports under `.agent-work/11_ARCHIVE/workspace*.html` are allowed, but coordination files such as `.agent-work/LOCKS.md`, parent traversal paths, and symlink outputs are rejected.
 
@@ -379,15 +399,15 @@ bash scripts/check-version.sh
 Create a release:
 
 ```bash
-git tag v0.1.8
-git push origin v0.1.8
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 Release artifacts include `SHA256SUMS` so users can verify downloaded archives before installing.
 
 ## Status
 
-Version `0.1.8` is the current local release. It is intentionally Bash-first and conservative: no daemon, no hosted control plane, no hidden remote scheduler.
+Version `0.2.0` is the current local release. It is intentionally Bash-first and conservative: no daemon, no hosted control plane, no hidden remote scheduler.
 
 Current gaps:
 
