@@ -1,0 +1,633 @@
+{
+  "alerts": [
+    {
+      "severity": "critical",
+      "type": "fixture_blocker",
+      "role": "fixture-role-06",
+      "message": "Dense 20 fixture blocker card for visual evidence.",
+      "next_action": "Promote blocked role above bench roles."
+    }
+  ],
+  "commands": {
+    "allowed_read_commands": [
+      "agentdock team",
+      "agentdock report --fast",
+      "agentdock inbox <role>",
+      "agentdock workspace snapshot --json"
+    ],
+    "mode": "read-only",
+    "write_bridge_enabled": false
+  },
+  "events": [],
+  "generated_at": "2026-05-22T00:20:00Z",
+  "job": {
+    "final_ready": false,
+    "final_ready_reason": "Dense 20 fixture keeps one selected role report missing for readability evidence",
+    "id": "JOB-FIXTURE-DENSE_20",
+    "lifecycle": "executing",
+    "lifecycle_status": "executing",
+    "path": "/tmp/agentdock-fixture/.agent-work/07_JOBS/JOB-FIXTURE",
+    "readme_path": "/tmp/agentdock-fixture/.agent-work/07_JOBS/JOB-FIXTURE/README.md"
+  },
+  "layout": {
+    "density": "dense",
+    "density_thresholds": {
+      "crowded": 50,
+      "dense": 20
+    },
+    "role_count": 20
+  },
+  "locks": {
+    "path": ".agent-work/LOCKS.md",
+    "present": true
+  },
+  "org": {
+    "model": "fixture",
+    "zones": [
+      "CEO Office",
+      "Engineering",
+      "QA",
+      "Delivery"
+    ]
+  },
+  "project": {
+    "name": "agentdock-fixture-dense-20",
+    "root": "/tmp/agentdock-fixture",
+    "session": "fixture-session",
+    "session_name": "fixture-session"
+  },
+  "reports": {
+    "missing_roles": [
+      "fixture-role-07"
+    ],
+    "required": 20,
+    "required_selected_roles": 20,
+    "submitted": 19,
+    "submitted_selected_roles": 19,
+    "total": 19
+  },
+  "roles": [
+    {
+      "avatar": {
+        "label": "FI",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "CEO Office",
+      "display": "Fixture Role 01",
+      "id": "fixture-role-01",
+      "latest_report_path": null,
+      "logical_node": "ceo-office",
+      "logical_node_label": "CEO Office",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": "%1",
+      "role_id": "fixture-role-01",
+      "running_pane": true,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/fixture-role-01.md"
+      ],
+      "status": "working",
+      "status_reason": "Fixture status: working",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/fixture-role-01.md",
+      "tier": "worker"
+    },
+    {
+      "avatar": {
+        "label": "FI",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "Product UX",
+      "display": "Fixture Role 02",
+      "id": "fixture-role-02",
+      "latest_report_path": ".agent-work/07_JOBS/JOB-FIXTURE/REPORTS/fixture-role-02.md",
+      "logical_node": "product-ux",
+      "logical_node_label": "Product UX",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": null,
+      "role_id": "fixture-role-02",
+      "running_pane": false,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/fixture-role-02.md"
+      ],
+      "status": "reported",
+      "status_reason": "Fixture status: reported",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/fixture-role-02.md",
+      "tier": "worker"
+    },
+    {
+      "avatar": {
+        "label": "FI",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "Engineering",
+      "display": "Fixture Role 03",
+      "id": "fixture-role-03",
+      "latest_report_path": null,
+      "logical_node": "engineering",
+      "logical_node_label": "Engineering",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": null,
+      "role_id": "fixture-role-03",
+      "running_pane": false,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/fixture-role-03.md"
+      ],
+      "status": "blocked",
+      "status_reason": "Fixture status: blocked",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/fixture-role-03.md",
+      "tier": "worker"
+    },
+    {
+      "avatar": {
+        "label": "FI",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "QA",
+      "display": "Fixture Role 04",
+      "id": "fixture-role-04",
+      "latest_report_path": null,
+      "logical_node": "qa",
+      "logical_node_label": "QA",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": "%4",
+      "role_id": "fixture-role-04",
+      "running_pane": true,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/fixture-role-04.md"
+      ],
+      "status": "online",
+      "status_reason": "Fixture status: online",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/fixture-role-04.md",
+      "tier": "worker"
+    },
+    {
+      "avatar": {
+        "label": "FI",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "Delivery",
+      "display": "Fixture Role 05",
+      "id": "fixture-role-05",
+      "latest_report_path": null,
+      "logical_node": "delivery",
+      "logical_node_label": "Delivery",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": null,
+      "role_id": "fixture-role-05",
+      "running_pane": false,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/fixture-role-05.md"
+      ],
+      "status": "assigned",
+      "status_reason": "Fixture status: assigned",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/fixture-role-05.md",
+      "tier": "worker"
+    },
+    {
+      "avatar": {
+        "label": "FI",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "CEO Office",
+      "display": "Fixture Role 06",
+      "id": "fixture-role-06",
+      "latest_report_path": null,
+      "logical_node": "ceo-office",
+      "logical_node_label": "CEO Office",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": "%6",
+      "role_id": "fixture-role-06",
+      "running_pane": true,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/fixture-role-06.md"
+      ],
+      "status": "blocked",
+      "status_reason": "Fixture blocker for dense-20 evidence",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/fixture-role-06.md",
+      "tier": "worker"
+    },
+    {
+      "avatar": {
+        "label": "FI",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "Product UX",
+      "display": "Fixture Role 07",
+      "id": "fixture-role-07",
+      "latest_report_path": "",
+      "logical_node": "product-ux",
+      "logical_node_label": "Product UX",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": null,
+      "role_id": "fixture-role-07",
+      "running_pane": false,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/fixture-role-07.md"
+      ],
+      "status": "reported",
+      "status_reason": "Fixture status: reported",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/fixture-role-07.md",
+      "tier": "worker"
+    },
+    {
+      "avatar": {
+        "label": "FI",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "Engineering",
+      "display": "Fixture Role 08",
+      "id": "fixture-role-08",
+      "latest_report_path": null,
+      "logical_node": "engineering",
+      "logical_node_label": "Engineering",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": null,
+      "role_id": "fixture-role-08",
+      "running_pane": false,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/fixture-role-08.md"
+      ],
+      "status": "blocked",
+      "status_reason": "Fixture status: blocked",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/fixture-role-08.md",
+      "tier": "worker"
+    },
+    {
+      "avatar": {
+        "label": "FI",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "QA",
+      "display": "Fixture Role 09",
+      "id": "fixture-role-09",
+      "latest_report_path": null,
+      "logical_node": "qa",
+      "logical_node_label": "QA",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": "%9",
+      "role_id": "fixture-role-09",
+      "running_pane": true,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/fixture-role-09.md"
+      ],
+      "status": "online",
+      "status_reason": "Fixture status: online",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/fixture-role-09.md",
+      "tier": "worker"
+    },
+    {
+      "avatar": {
+        "label": "FI",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "Delivery",
+      "display": "Fixture Role 10",
+      "id": "fixture-role-10",
+      "latest_report_path": null,
+      "logical_node": "delivery",
+      "logical_node_label": "Delivery",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": null,
+      "role_id": "fixture-role-10",
+      "running_pane": false,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/fixture-role-10.md"
+      ],
+      "status": "assigned",
+      "status_reason": "Fixture status: assigned",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/fixture-role-10.md",
+      "tier": "worker"
+    },
+    {
+      "avatar": {
+        "label": "FI",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "CEO Office",
+      "display": "Fixture Role 11",
+      "id": "fixture-role-11",
+      "latest_report_path": null,
+      "logical_node": "ceo-office",
+      "logical_node_label": "CEO Office",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": "%11",
+      "role_id": "fixture-role-11",
+      "running_pane": true,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/fixture-role-11.md"
+      ],
+      "status": "working",
+      "status_reason": "Fixture status: working",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/fixture-role-11.md",
+      "tier": "worker"
+    },
+    {
+      "avatar": {
+        "label": "FI",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "Product UX",
+      "display": "Fixture Role 12",
+      "id": "fixture-role-12",
+      "latest_report_path": ".agent-work/07_JOBS/JOB-FIXTURE/REPORTS/fixture-role-12.md",
+      "logical_node": "product-ux",
+      "logical_node_label": "Product UX",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": null,
+      "role_id": "fixture-role-12",
+      "running_pane": false,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/fixture-role-12.md"
+      ],
+      "status": "reported",
+      "status_reason": "Fixture status: reported",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/fixture-role-12.md",
+      "tier": "worker"
+    },
+    {
+      "avatar": {
+        "label": "FI",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "Engineering",
+      "display": "Fixture Role 13",
+      "id": "fixture-role-13",
+      "latest_report_path": null,
+      "logical_node": "engineering",
+      "logical_node_label": "Engineering",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": null,
+      "role_id": "fixture-role-13",
+      "running_pane": false,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/fixture-role-13.md"
+      ],
+      "status": "blocked",
+      "status_reason": "Fixture status: blocked",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/fixture-role-13.md",
+      "tier": "worker"
+    },
+    {
+      "avatar": {
+        "label": "FI",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "QA",
+      "display": "Fixture Role 14",
+      "id": "fixture-role-14",
+      "latest_report_path": null,
+      "logical_node": "qa",
+      "logical_node_label": "QA",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": "%14",
+      "role_id": "fixture-role-14",
+      "running_pane": true,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/fixture-role-14.md"
+      ],
+      "status": "online",
+      "status_reason": "Fixture status: online",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/fixture-role-14.md",
+      "tier": "worker"
+    },
+    {
+      "avatar": {
+        "label": "FI",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "Delivery",
+      "display": "Fixture Role 15",
+      "id": "fixture-role-15",
+      "latest_report_path": null,
+      "logical_node": "delivery",
+      "logical_node_label": "Delivery",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": null,
+      "role_id": "fixture-role-15",
+      "running_pane": false,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/fixture-role-15.md"
+      ],
+      "status": "assigned",
+      "status_reason": "Fixture status: assigned",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/fixture-role-15.md",
+      "tier": "worker"
+    },
+    {
+      "avatar": {
+        "label": "FI",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "CEO Office",
+      "display": "Fixture Role 16",
+      "id": "fixture-role-16",
+      "latest_report_path": null,
+      "logical_node": "ceo-office",
+      "logical_node_label": "CEO Office",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": "%16",
+      "role_id": "fixture-role-16",
+      "running_pane": true,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/fixture-role-16.md"
+      ],
+      "status": "working",
+      "status_reason": "Fixture status: working",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/fixture-role-16.md",
+      "tier": "worker"
+    },
+    {
+      "avatar": {
+        "label": "FI",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "Product UX",
+      "display": "Fixture Role 17",
+      "id": "fixture-role-17",
+      "latest_report_path": ".agent-work/07_JOBS/JOB-FIXTURE/REPORTS/fixture-role-17.md",
+      "logical_node": "product-ux",
+      "logical_node_label": "Product UX",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": null,
+      "role_id": "fixture-role-17",
+      "running_pane": false,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/fixture-role-17.md"
+      ],
+      "status": "reported",
+      "status_reason": "Fixture status: reported",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/fixture-role-17.md",
+      "tier": "worker"
+    },
+    {
+      "avatar": {
+        "label": "FI",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "Engineering",
+      "display": "Fixture Role 18",
+      "id": "fixture-role-18",
+      "latest_report_path": null,
+      "logical_node": "engineering",
+      "logical_node_label": "Engineering",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": null,
+      "role_id": "fixture-role-18",
+      "running_pane": false,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/fixture-role-18.md"
+      ],
+      "status": "blocked",
+      "status_reason": "Fixture status: blocked",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/fixture-role-18.md",
+      "tier": "worker"
+    },
+    {
+      "avatar": {
+        "label": "FI",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "QA",
+      "display": "Fixture Role 19",
+      "id": "fixture-role-19",
+      "latest_report_path": null,
+      "logical_node": "qa",
+      "logical_node_label": "QA",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": "%19",
+      "role_id": "fixture-role-19",
+      "running_pane": true,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/fixture-role-19.md"
+      ],
+      "status": "online",
+      "status_reason": "Fixture status: online",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/fixture-role-19.md",
+      "tier": "worker"
+    },
+    {
+      "avatar": {
+        "label": "FI",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "Delivery",
+      "display": "Fixture Role 20",
+      "id": "fixture-role-20",
+      "latest_report_path": null,
+      "logical_node": "delivery",
+      "logical_node_label": "Delivery",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": null,
+      "role_id": "fixture-role-20",
+      "running_pane": false,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/fixture-role-20.md"
+      ],
+      "status": "assigned",
+      "status_reason": "Fixture status: assigned",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/fixture-role-20.md",
+      "tier": "worker"
+    }
+  ],
+  "schema_version": "workspace.snapshot.v1",
+  "status_taxonomy": {
+    "assigned": "Task assigned",
+    "blocked": "Blocked",
+    "configured": "Role prompt configured",
+    "final_ready": "Ready for finish",
+    "online": "Pane online",
+    "reported": "Report submitted",
+    "working": "Work in progress"
+  },
+  "support": {
+    "linux": true,
+    "macos": true,
+    "windows": false
+  },
+  "warnings": [
+    {
+      "severity": "info",
+      "summary": "Role count requires compact/dense UI",
+      "type": "density"
+    }
+  ]
+}

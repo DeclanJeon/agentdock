@@ -1,0 +1,193 @@
+{
+  "alerts": [
+    {
+      "severity": "critical",
+      "type": "snapshot_error",
+      "message": "Snapshot unavailable; showing safe fallback.",
+      "next_action": "Check AgentDock project path and rerun refresh."
+    }
+  ],
+  "commands": {
+    "allowed_read_commands": [
+      "agentdock team",
+      "agentdock report --fast",
+      "agentdock inbox <role>",
+      "agentdock workspace snapshot --json"
+    ],
+    "mode": "read-only",
+    "write_bridge_enabled": false
+  },
+  "events": [],
+  "generated_at": "2026-05-22T00:30:00Z",
+  "job": {
+    "final_ready": false,
+    "final_ready_reason": "Snapshot command failed safely without stack trace or secret leakage",
+    "id": "JOB-FIXTURE-ERROR_STATE",
+    "lifecycle": "executing",
+    "lifecycle_status": "executing",
+    "path": "/tmp/agentdock-fixture/.agent-work/07_JOBS/JOB-FIXTURE",
+    "readme_path": "/tmp/agentdock-fixture/.agent-work/07_JOBS/JOB-FIXTURE/README.md"
+  },
+  "layout": {
+    "density": "normal",
+    "density_thresholds": {
+      "crowded": 50,
+      "dense": 20
+    },
+    "role_count": 4
+  },
+  "locks": {
+    "path": ".agent-work/LOCKS.md",
+    "present": true
+  },
+  "org": {
+    "model": "fixture",
+    "zones": [
+      "CEO Office",
+      "Engineering",
+      "QA",
+      "Delivery"
+    ]
+  },
+  "project": {
+    "name": "agentdock-fixture-error-state",
+    "root": "/tmp/agentdock-fixture",
+    "session": "fixture-session",
+    "session_name": "fixture-session"
+  },
+  "reports": {
+    "missing_roles": [],
+    "required": 4,
+    "required_selected_roles": 4,
+    "submitted": 4,
+    "submitted_selected_roles": 4,
+    "total": 4
+  },
+  "roles": [
+    {
+      "avatar": {
+        "label": "OR",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "CEO Office",
+      "display": "Orchestrator",
+      "id": "orchestrator",
+      "latest_report_path": ".agent-work/07_JOBS/JOB-FIXTURE/REPORTS/orchestrator.md",
+      "logical_node": "ceo-office",
+      "logical_node_label": "CEO Office",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": null,
+      "role_id": "orchestrator",
+      "running_pane": false,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/orchestrator.md"
+      ],
+      "status": "reported",
+      "status_reason": "Fixture status: reported",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/orchestrator.md",
+      "tier": "worker"
+    },
+    {
+      "avatar": {
+        "label": "SY",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "Engineering",
+      "display": "System Architect",
+      "id": "system-architect",
+      "latest_report_path": ".agent-work/07_JOBS/JOB-FIXTURE/REPORTS/system-architect.md",
+      "logical_node": "engineering",
+      "logical_node_label": "Engineering",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": "%2",
+      "role_id": "system-architect",
+      "running_pane": true,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/system-architect.md"
+      ],
+      "status": "working",
+      "status_reason": "Fixture status: working",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/system-architect.md",
+      "tier": "worker"
+    },
+    {
+      "avatar": {
+        "label": "DE",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "Engineering",
+      "display": "Developer",
+      "id": "developer",
+      "latest_report_path": ".agent-work/07_JOBS/JOB-FIXTURE/REPORTS/developer.md",
+      "logical_node": "engineering",
+      "logical_node_label": "Engineering",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": "%3",
+      "role_id": "developer",
+      "running_pane": true,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/developer.md"
+      ],
+      "status": "working",
+      "status_reason": "Fixture status: working",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/developer.md",
+      "tier": "worker"
+    },
+    {
+      "avatar": {
+        "label": "AG",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "QA",
+      "display": "Agentdock Qa",
+      "id": "agentdock-qa",
+      "latest_report_path": ".agent-work/07_JOBS/JOB-FIXTURE/REPORTS/agentdock-qa.md",
+      "logical_node": "qa",
+      "logical_node_label": "QA",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": "%4",
+      "role_id": "agentdock-qa",
+      "running_pane": true,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/agentdock-qa.md"
+      ],
+      "status": "online",
+      "status_reason": "Fixture status: online",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/agentdock-qa.md",
+      "tier": "worker"
+    }
+  ],
+  "schema_version": "workspace.snapshot.v1",
+  "status_taxonomy": {
+    "assigned": "Task assigned",
+    "blocked": "Blocked",
+    "configured": "Role prompt configured",
+    "final_ready": "Ready for finish",
+    "online": "Pane online",
+    "reported": "Report submitted",
+    "working": "Work in progress"
+  },
+  "support": {
+    "linux": true,
+    "macos": true,
+    "windows": false
+  },
+  "warnings": [],
+  "source_mode": "error"
+}

@@ -55,13 +55,25 @@ while IFS= read -r line; do echo "hermes: $line"; done
 EOF
 chmod +x "$FAKE/hermes"
 
+cat > "$FAKE/hangai" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "--version" ]]; then
+  sleep 30
+  exit 0
+fi
+echo "hangai ready"
+while IFS= read -r line; do echo "hangai: $line"; done
+EOF
+chmod +x "$FAKE/hangai"
+
 export PATH="$FAKE:$PATH"
 export XDG_CONFIG_HOME="$TMP/config"
+export AGENTDOCK_ADAPTER_VERSION_TIMEOUT="1s"
 tmux kill-session -t project-agents 2>/dev/null || true
-"$ROOT/bin/agentdock" version | grep -q 'agentdock 0.1.8'
+"$ROOT/bin/agentdock" version | grep -q 'agentdock 0.2.0'
 ln -sf "$ROOT/bin/agentdock" "$FAKE/adock"
 ln -sf "$ROOT/bin/agentdock" "$FAKE/adock-delegate"
-adock version | grep -q 'agentdock 0.1.8'
+adock version | grep -q 'agentdock 0.2.0'
 
 MISS="$TMP/missing-hermes"
 mkdir -p "$MISS/fakebin" "$MISS/project"
@@ -83,6 +95,13 @@ chmod +x "$MISS/fakebin/tmux"
 
 "$ROOT/bin/agentdock" cli add --id fakeai --command fakeai --install "true"
 "$ROOT/bin/agentdock" install fakeai --yes | grep -q 'fakeai'
+"$ROOT/bin/agentdock" cli add --id hangai --command hangai --install "true"
+HANG_START="$(date +%s)"
+"$ROOT/bin/agentdock" install hangai --yes > "$TMP/hangai-install.out"
+HANG_ELAPSED="$(( $(date +%s) - HANG_START ))"
+test "$HANG_ELAPSED" -lt 10
+grep -q 'hangai' "$TMP/hangai-install.out"
+grep -q 'unknown' "$TMP/hangai-install.out"
 "$ROOT/bin/agentdock" cli add --id unsafe --command missingunsafe --install "rm -rf /" >/dev/null
 if "$ROOT/bin/agentdock" install unsafe --yes > "$TMP/unsafe.out" 2>&1; then
   echo "unsupported install command should fail" >&2
