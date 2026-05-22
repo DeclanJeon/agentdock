@@ -39,28 +39,36 @@
 
 ## Lane D — Read-only history / inspector clarity (P1)
 
-- [ ] `workspace history --json` 신규 CLI와 snapshot payload 확장 중 하나를 결정한다.
-- [ ] previous jobs read-only inspection 설계를 작성한다.
-- [ ] job 선택이 `CURRENT.md`를 변경하지 않는 no-mutation test를 정의한다.
-- [ ] role inspector의 task/report/running/configured/selected/bench/offline clarity gap을 점검한다.
-- [ ] 구현 범위가 크면 design-only artifact와 후속 task card로 분리한다.
+- [x] `workspace history --json` 신규 CLI와 snapshot payload 확장 중 하나를 결정한다.
+  - Decision: first extend the existing read-only snapshot payload with bounded history summaries; defer a separate `workspace history --json` command until the UI need exceeds that contract.
+- [x] previous jobs read-only inspection 설계를 작성한다.
+  - Artifact: `docs/visual-workspace-history-followup-release-hygiene.md`.
+- [x] job 선택이 `CURRENT.md`를 변경하지 않는 no-mutation test를 정의한다.
+  - Defined in the Lane D no-mutation contract and locked by `tests/workspace_history_followup_design.sh`.
+- [x] role inspector의 task/report/running/configured/selected/bench/offline clarity gap을 점검한다.
+  - Inspector contract now requires task/report path, running pane, selected/bench/offline, and live/stale/demo/error source clarity before implementation.
+- [x] 구현 범위가 크면 design-only artifact와 후속 task card로 분리한다.
+  - This slice is design/test-contract only; runtime implementation remains a follow-up task.
 
 ## Lane E — Controlled intervention next slice (P2)
 
-- [ ] 첫 enabled intervention은 CEO follow-up으로 제한한다.
-- [ ] `agentdock job followup` 신규 CLI 또는 fixed `send <ceo> <message>` bridge 중 하나를 architecture decision으로 고정한다.
-- [ ] follow-up request/result DTO, validation, fixed argv, timeout, redaction, project validation을 설계한다.
-- [ ] UI compose → preview → confirm → result → audit flow를 설계한다.
-- [ ] fake-agentdock argv regression과 sandbox inbox mutation proof를 정의한다.
-- [ ] selected broadcast / role send / recruit / task proposal은 follow-up 이후 별도 slice로 남긴다.
+- [x] 첫 enabled intervention은 CEO follow-up으로 제한한다.
+- [x] `agentdock job followup` 신규 CLI 또는 fixed `send <ceo> <message>` bridge 중 하나를 architecture decision으로 고정한다.
+  - Decision: dedicated `agentdock job followup --message <text>`; reject generic `send` as the UI bridge.
+- [x] follow-up request/result DTO, validation, fixed argv, timeout, redaction, project validation을 설계한다.
+  - Artifact: `docs/visual-workspace-history-followup-release-hygiene.md`.
+- [x] UI compose → preview → confirm → result → audit flow를 설계한다.
+- [x] fake-agentdock argv regression과 sandbox inbox mutation proof를 정의한다.
+- [x] selected broadcast / role send / recruit / task proposal은 follow-up 이후 별도 slice로 남긴다.
 
 ## Lane F — Commit/release hygiene (cross-cutting)
 
-- [ ] `git status --short --untracked-files=all` 기준으로 source/test 변경과 generated output을 분리한다.
-- [ ] untracked source/test files를 commit 대상 후보로 분류한다.
-- [ ] generated output이 `.gitignore`에 의해 제외되는지 확인한다.
-- [ ] Lore commit protocol에 맞는 commit split 제안을 작성한다.
-- [ ] README/docs의 상태 문구가 source-level GO와 release NO-GO를 혼동하지 않게 정리한다.
+- [x] `git status --short --untracked-files=all` 기준으로 source/test 변경과 generated output을 분리한다.
+- [x] untracked source/test files를 commit 대상 후보로 분류한다.
+- [x] generated output이 `.gitignore`에 의해 제외되는지 확인한다.
+- [x] Lore commit protocol에 맞는 commit split 제안을 작성한다.
+- [x] README/docs의 상태 문구가 source-level GO와 release NO-GO를 혼동하지 않게 정리한다.
+  - Rule: docs may claim source-level progress only; release-ready/90%+/QA GO still requires native live-click PASS, current-job `releaseProof=true`, final matrix PASS, and leader QA approval.
 
 ## Parallel assignment
 
