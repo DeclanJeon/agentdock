@@ -734,19 +734,45 @@ h1 { margin-bottom: 0; font-size: 28px; text-shadow: 2px 2px 0 #000; }
 }
 
 
-.facilitation-timeline,
-.action-audit-panel,
-.intervention-panel {
-  margin-top: 14px;
-  border: 4px solid #2b2530;
-  border-radius: 18px;
-  background: rgba(18, 22, 34, .9);
-  padding: 14px;
-  box-shadow: 0 8px 0 #08090d;
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
+
+.facilitation-timeline.progress-strip {
+  margin-top: 6px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #17385a;
+  border-radius: 6px;
+  background: #071321;
+  padding: 7px 9px;
+  box-shadow: none;
+}
+.timeline-strip-heading {
+  display: grid;
+  gap: 1px;
+  min-width: 180px;
+}
+.timeline-strip-heading h2 { margin: 0; font-size: 14px; text-shadow: none; }
+.timeline-strip-heading p { margin: 0; color: #8ca0b6; font-size: 11px; line-height: 1.2; }
 .facilitation-timeline ol,
 .action-audit-panel ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.facilitation-timeline ol { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.facilitation-timeline.progress-strip ol.timeline-strip {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(92px, 1fr));
+  gap: 4px;
+  min-width: 0;
+}
 .timeline-step,
 .audit-event,
 .intervention-grid article {
@@ -757,10 +783,38 @@ h1 { margin-bottom: 0; font-size: 28px; text-shadow: 2px 2px 0 #000; }
   background: rgba(0,0,0,.2);
   padding: 10px;
 }
+.facilitation-timeline.progress-strip .timeline-step {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  border-width: 1px;
+  border-radius: 999px;
+  padding: 5px 7px;
+  background: #081829;
+}
+.timeline-step strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.timeline-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #8ca0b6;
+  box-shadow: 0 0 0 2px rgba(255,255,255,.08);
+}
 .timeline-step.state-done { border-color: #28764a; }
+.timeline-step.state-done .timeline-dot { background: #83f0a2; }
 .timeline-step.state-active { border-color: #7ee7f2; }
+.timeline-step.state-active .timeline-dot { background: #7ee7f2; }
 .timeline-step.state-blocked, .audit-event.status-failure { border-color: #b2454e; }
+.timeline-step.state-blocked .timeline-dot { background: #ff5c6c; box-shadow: 0 0 10px rgba(255, 92, 108, .65); }
 .timeline-step.state-pending { opacity: .72; }
+.timeline-step.state-pending .timeline-dot { background: #5f6b7a; }
 .timeline-state,
 .timeline-evidence,
 .audit-event span {
@@ -770,6 +824,69 @@ h1 { margin-bottom: 0; font-size: 28px; text-shadow: 2px 2px 0 #000; }
   padding: 2px 7px;
   color: #d8c3a7;
 }
+.facilitation-timeline.progress-strip .timeline-state {
+  max-width: 52px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 1px 5px;
+  font-size: 10px;
+}
+.facilitation-timeline.progress-strip .timeline-evidence {
+  min-width: 20px;
+  text-align: center;
+  padding: 1px 5px;
+  color: #9ee6ff;
+}
+.auxiliary-panel-dock {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.action-audit-panel,
+.intervention-panel {
+  border: 1px solid #17385a;
+  border-radius: 6px;
+  background: #071321;
+  box-shadow: none;
+}
+.auxiliary-panel summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  padding: 8px 10px;
+  color: #e8f0ff;
+}
+.auxiliary-panel summary::-webkit-details-marker { display: none; }
+.auxiliary-panel summary::before {
+  content: "▸";
+  color: #7ee7f2;
+}
+.auxiliary-panel[open] summary::before { content: "▾"; }
+.auxiliary-panel summary > span:first-child {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.auxiliary-panel summary strong { font-size: 13px; }
+.auxiliary-summary-chip {
+  border: 1px solid #24435f;
+  border-radius: 999px;
+  background: #06101b;
+  color: #9ec7ff;
+  padding: 3px 7px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.auxiliary-panel-body {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid #16314d;
+  padding: 10px;
+}
+.auxiliary-panel-body > p { margin: 0; color: #c5d4e5; font-size: 12px; }
 .action-audit-panel code,
 .intervention-panel code,
 .audit-event code {

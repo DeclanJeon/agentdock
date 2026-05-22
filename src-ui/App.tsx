@@ -183,6 +183,9 @@ export default function App() {
           <SecurityStatusStrip snapshot={snapshot} mode={mode} />
         </div>
       </div>
+      <ErrorStrip mode={mode} error={error} lastUpdatedAt={lastUpdatedAt} />
+      <CeoTaskComposer onCreateJob={createCeoJob} refreshStatus={lastCreateRefreshStatus} lastRefreshAt={lastUpdatedAt} />
+      <FacilitationTimeline snapshot={snapshot} mode={mode} />
       {visualMode === 'pixelOffice' ? (
         <OfficeScene snapshot={snapshot} mode={mode} selectedRoleId={selectedRole?.id} onSelectRole={setSelectedRole} />
       ) : (
@@ -191,10 +194,10 @@ export default function App() {
           <Inspector snapshot={snapshot} role={selectedRole} />
         </div>
       )}
-      <section className="auxiliary-panels" aria-label="Collapsed audit and intervention drawers">
+      <aside className="auxiliary-panel-dock" aria-label="Collapsed auxiliary controls">
         <ActionAuditPanel events={auditEvents} />
         <InterventionPanel snapshot={snapshot} />
-      </section>
+      </aside>
     </div>
   );
 }
