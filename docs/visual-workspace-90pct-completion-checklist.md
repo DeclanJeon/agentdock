@@ -904,3 +904,320 @@ Exit criteria:
 - [ ] Task change proposal route 구현.
 - [ ] 모든 controlled action에 fixed argv/no shell/redaction/timeout/project validation/fake bridge/sandbox proof 적용.
 
+
+---
+
+## 12. 누락 점검 보강 — 추가해야 할 항목
+
+이 섹션은 기존 1~11번 체크리스트를 다시 대조한 뒤 발견한 누락/약한 항목이다. 기존 문서는 큰 줄기는 맞지만, 90%+ claim을 방어하려면 아래 항목도 명시적으로 포함해야 한다.
+
+### 12.1 10초 명확성 / 제품 사용성 게이트
+
+기존 문서에 일부 언급은 있으나 독립 gate로 부족했다.
+
+체크리스트:
+
+- [ ] 사용자가 앱을 켠 뒤 10초 안에 다음을 말할 수 있어야 한다.
+  - [ ] 현재 active job id / title.
+  - [ ] lifecycle phase.
+  - [ ] CEO가 작업을 받았는지 여부.
+  - [ ] selected team이 누구인지.
+  - [ ] 누가 working/reported/blocked/offline인지.
+  - [ ] missing reports가 무엇인지.
+  - [ ] finish 가능/불가능 이유.
+  - [ ] 앱이 live/stale/demo/error 중 어떤 상태인지.
+  - [ ] 앱이 snapshot/source-of-truth 기반인지.
+  - [ ] 현재 화면에서 가능한 action과 불가능한 action.
+- [ ] product/UX reviewer가 10초 clarity checklist를 수동 기록한다.
+- [ ] native screenshot pack에 10초 clarity annotation 또는 reviewer note를 포함한다.
+
+Acceptance:
+
+- [ ] 신규 유저 기준으로 핵심 상태 설명 실패 항목 0~1개 이하.
+- [ ] 실패 항목이 있으면 90%+ claim 금지.
+
+### 12.2 시각 품질 / pixel-office 품질 점수
+
+기존 문서는 기능/릴리스 중심이고 visual quality scoring이 약했다. 90% 제품 claim에는 별도 점수가 필요하다.
+
+체크리스트:
+
+- [ ] 100점 visual/product matrix 추가.
+- [ ] 각 항목 최소 점수 적용:
+  - [ ] Visual quality / art direction: 20점 중 18점 이상.
+  - [ ] Office spatial feeling: 20점 중 18점 이상.
+  - [ ] Character immersion / role identity: 20점 중 18점 이상.
+  - [ ] Status clarity / operational readability: 20점 중 18점 이상.
+  - [ ] Accessibility / inclusive usability: 10점 중 8점 이상.
+  - [ ] Native desktop readiness / boundary: 10점 중 9점 이상.
+- [ ] functional test PASS와 visual 90% claim을 분리한다.
+- [ ] 카드형 dashboard가 PASS여도 office spatial/character immersion이 약하면 90% 제품 claim 금지.
+
+Acceptance:
+
+- [ ] 총점 90점 이상.
+- [ ] 모든 minimum sub-score 충족.
+- [ ] P0 blocker 없음.
+
+### 12.3 Accessibility 세부 항목
+
+기존 문서에 focus/reduced-motion 정도만 있고 a11y 세부 기준이 부족했다.
+
+체크리스트:
+
+- [ ] 전체 주요 action은 keyboard-only로 접근 가능.
+- [ ] visible focus ring이 모든 interactive element에 표시됨.
+- [ ] role/status chip이 색상만으로 의미를 전달하지 않음.
+- [ ] aria-label 또는 accessible name이 role id/status/action에 포함됨.
+- [ ] reduced-motion 환경에서 GIF/animation이 과도하게 동작하지 않음.
+- [ ] screen reader용 live/stale/error 상태 텍스트 제공.
+- [ ] dense-50에서도 keyboard navigation이 끊기지 않음.
+- [ ] modal/confirmation 사용 시 focus trap/escape 동작 검증.
+
+Acceptance:
+
+- [ ] `tests/workspace_reference_a11y.sh` 확장 또는 신규 `tests/workspace_accessibility.sh` PASS.
+- [ ] native screenshot: keyboard focus / reduced motion state 포함.
+
+### 12.4 Screenshot evidence required filenames/state coverage
+
+기존 문서는 상태 범위는 말하지만 파일명/상태별 기준이 약했다.
+
+필수 native evidence:
+
+- [ ] `01-live-default-1440x900.png`
+- [ ] `02-report-desk-missing-reports.png`
+- [ ] `03-blocker-desk-structured-alerts.png`
+- [ ] `04-final-ready.png`
+- [ ] `05-dense-50-roles.png`
+- [ ] `06-stale-error-last-good.png`
+- [ ] `07-demo-mode-disclosure.png`
+- [ ] `08-reduced-motion-focus.png`
+- [ ] `09-ceo-task-composer-empty-valid.png`
+- [ ] `10-ceo-task-composer-success.png`
+- [ ] `11-action-audit-panel.png`
+- [ ] `12-intervention-preview-confirmation.png`
+
+Acceptance:
+
+- [ ] manifest가 위 파일을 required state로 검증.
+- [ ] 누락/blank/non-native 파일이면 releaseProof=false.
+
+### 12.5 Unsupported schema / malformed snapshot / last-good fallback
+
+기존에는 언급되어 있으나 90% 체크리스트에서 release blocker로 명확하지 않았다.
+
+체크리스트:
+
+- [ ] unsupported `schema_version`이면 crash하지 않고 recoverable error 표시.
+- [ ] malformed JSON이면 last-good snapshot 유지 또는 명확한 error state 표시.
+- [ ] missing optional fields는 safe fallback 렌더링.
+- [ ] required fields 누락 시 unknown/blocked 표시, 임의 추론 금지.
+- [ ] schema mismatch 상태에서도 no-write/no-action boundary 유지.
+
+Acceptance:
+
+- [ ] fixtures: unsupported-schema, malformed-json, missing-optional, missing-required 추가.
+- [ ] UI가 raw exception/stack trace를 보여주지 않음.
+
+### 12.6 Static export drift / raw object rendering / secret leakage
+
+기존 test에 일부 있지만 90% 문서에는 더 명확히 들어가야 한다.
+
+체크리스트:
+
+- [ ] React native UI와 static HTML export가 blocker/warning을 사람이 읽을 수 있게 렌더링.
+- [ ] raw object 패턴 금지:
+  - [ ] `[object Object]`
+  - [ ] `{ type`
+  - [ ] `{&#x27;type&#x27;`
+  - [ ] raw JSON이 일반 UI 영역에 노출됨.
+- [ ] raw JSON은 명확히 labeled technical evidence panel에서만 허용.
+- [ ] snapshot/export/native UI 모두 secret redaction 적용.
+- [ ] action outputs stdout/stderr도 redaction 적용.
+
+Acceptance:
+
+- [ ] `workspace_reference_a11y.sh` / `workspace_visual_fixtures.sh` / export scan 통과.
+- [ ] secret fixture에서 raw token 노출 0건.
+
+### 12.7 Action permission/capability 모델
+
+기존에는 allowed_actions만 언급했지만, 운영 콘솔 90%에는 capability model이 필요하다.
+
+체크리스트:
+
+- [ ] snapshot에 action capabilities를 명시:
+  - [ ] action id.
+  - [ ] label.
+  - [ ] enabled/disabled.
+  - [ ] disabled reason.
+  - [ ] requires confirmation 여부.
+  - [ ] side-effect class.
+- [ ] UI는 capability가 없는 action을 숨기거나 disabled reason과 함께 표시.
+- [ ] Tauri handler allowlist와 snapshot capability가 불일치하면 warning 표시.
+- [ ] action별 audit event schema 통일.
+
+Acceptance:
+
+- [ ] capability mismatch fixture/test 추가.
+- [ ] disabled action을 강제로 invoke해도 Rust validation에서 거부.
+
+### 12.8 Active job 없음 / multiple jobs / stale current 상태
+
+기존 checklist는 active job이 있다고 가정하는 부분이 많았다.
+
+체크리스트:
+
+- [ ] no active job 상태에서 CEO job create는 가능하지만 follow-up/send/broadcast/finish는 disabled.
+- [ ] multiple previous jobs가 있을 때 active/current와 inspected job을 혼동하지 않음.
+- [ ] `CURRENT.md`가 stale/missing/broken path일 때 안전한 error state.
+- [ ] completed job 상태에서 intervention action 제한.
+- [ ] final-ready job과 completed job의 action availability 구분.
+
+Acceptance:
+
+- [ ] fixtures: no-active-job, completed-job, broken-current 추가.
+- [ ] no active job에서 follow-up/send/broadcast/recruit behavior 검증.
+
+### 12.9 tmux/pane/runtime 상태와 실패 복구
+
+운영 콘솔 90%에는 agent pane 상태가 중요하다.
+
+체크리스트:
+
+- [ ] running pane / configured / missing adapter / offline 상태 구분.
+- [ ] send/broadcast 대상 role이 offline이면 결과/경고를 명확히 표시.
+- [ ] recruit가 tmux/session 없음 상태에서 어떻게 동작하는지 정의.
+- [ ] tmux session collision/root hash/session name 표시.
+- [ ] command timeout 후 child process cleanup 검증.
+- [ ] adapter version hang 회귀가 release matrix에 포함.
+
+Acceptance:
+
+- [ ] offline role send fixture/proof.
+- [ ] tmux missing/session stopped 상태 fixture/proof.
+
+### 12.10 보안/프롬프트 인젝션 경계
+
+기존 no-shell 중심에서 운영 콘솔용 prompt injection 경계가 부족했다.
+
+체크리스트:
+
+- [ ] 유저 입력/role report/inbox text는 untrusted로 표시.
+- [ ] action preview에 “이 메시지는 운영자 지시로 전달되지만, 하위 agent system instruction을 대체하지 않는다” 경계 명시.
+- [ ] malicious request가 UI/system copy를 바꾸거나 숨기지 못함.
+- [ ] markdown/html injection sanitize.
+- [ ] command output에 ANSI/control chars가 UI를 깨지 않게 처리.
+- [ ] role id/template/message에 path traversal/control character 거부.
+
+Acceptance:
+
+- [ ] malicious text fixture 추가.
+- [ ] UI render/source scan PASS.
+
+### 12.11 설치/패키징/업데이트 경로
+
+release-ready 90%에는 빌드만 아니라 설치 후 실행 검증이 필요하다.
+
+체크리스트:
+
+- [ ] fresh clone에서 `npm install && npm run build` PASS.
+- [ ] `npm run tauri:build` artifact 생성 PASS.
+- [ ] built binary가 `--project <path>`로 실행 가능.
+- [ ] `agentdock workspace app --project <path>`가 installed binary 또는 dev fallback을 정확히 선택.
+- [ ] Linux 환경 기준 dependency error가 actionable함.
+- [ ] macOS/Windows/WSL 지원/비지원 문구 확인.
+- [ ] release archive에 불필요한 `.agent-work`, `target`, `dist`, `node_modules` 포함 금지.
+
+Acceptance:
+
+- [ ] package artifact scan PASS.
+- [ ] installed binary smoke PASS.
+
+### 12.12 성능/확장성 기준
+
+dense-50 표시만으로는 운영 콘솔 90%가 부족하다.
+
+체크리스트:
+
+- [ ] 50 roles snapshot render가 사용 가능.
+- [ ] 100 roles synthetic snapshot에서 crash 없음.
+- [ ] snapshot refresh interval이 겹치지 않음.
+- [ ] large report/blocker payload truncate/expand UX.
+- [ ] action audit log가 길어져도 UI가 느려지지 않음.
+- [ ] memory leak 또는 interval cleanup 검증.
+
+Acceptance:
+
+- [ ] dense-100 synthetic test 또는 perf smoke.
+- [ ] refresh overlap prevention test.
+
+### 12.13 국제화/한국어 운영 UX
+
+사용자 운영 언어가 한국어이므로 90% UX에는 한국어 copy 품질이 들어가야 한다.
+
+체크리스트:
+
+- [ ] 주요 action label/confirmation/error가 한국어 운영자에게 이해 가능.
+- [ ] 영어 CLI command copy는 보조로 유지하되, 설명은 한국어 우선.
+- [ ] 실패 메시지가 “무엇을 해야 하는지” 한국어로 알려줌.
+- [ ] role/status 용어가 혼용되어도 의미가 명확함.
+
+Acceptance:
+
+- [ ] 한국어 10초 clarity review PASS.
+
+### 12.14 데이터 보존/감사 로그 범위 결정
+
+기존 Action Audit은 session-local로만 되어 있다. 운영 콘솔 90%에는 보존 정책이 명확해야 한다.
+
+체크리스트:
+
+- [ ] audit log가 session-local인지 durable인지 제품 결정.
+- [ ] durable audit을 한다면 저장 위치/rotation/redaction 정책 정의.
+- [ ] session-local이면 reload 후 사라진다는 UI copy 표시.
+- [ ] action id/correlation id를 result/evidence에 포함.
+- [ ] release evidence와 user-facing audit의 차이 명시.
+
+Acceptance:
+
+- [ ] audit persistence policy 문서화.
+- [ ] UI copy와 실제 동작 일치.
+
+### 12.15 실패/부분 성공/롤백 정책
+
+운영 콘솔 action은 부분 성공이 발생할 수 있다.
+
+체크리스트:
+
+- [ ] action result에 success/partial/failure 구분.
+- [ ] send/broadcast 중 일부 role 실패 표시.
+- [ ] recruit가 role config는 만들었지만 pane start 실패한 경우 표시.
+- [ ] job create가 job dir은 만들었지만 CEO pane dispatch 실패한 경우 표시.
+- [ ] 롤백 가능/불가능 여부를 UI에 표시.
+- [ ] 재시도 가능 action과 금지 action 구분.
+
+Acceptance:
+
+- [ ] partial-success fake-agentdock regression.
+- [ ] UI가 partial을 full success로 표시하지 않음.
+
+### 12.16 직접 구현 전 결정 필요 항목
+
+아래는 체크리스트가 아니라 선결정이다. 결정 없이 구현하면 범위가 흔들린다.
+
+- [ ] 운영 콘솔 90%에 direct finish 버튼을 포함할지, assist까지만 포함할지 결정.
+- [ ] task card는 직접 edit까지 갈지, CEO proposal까지만 갈지 결정.
+- [ ] action audit은 session-local인지 durable인지 결정.
+- [ ] intervention action의 기본 대상은 CEO인지 selected team인지 결정.
+- [ ] Korean-first UI copy로 갈지 bilingual로 갈지 결정.
+- [ ] `workspace history --json`을 CLI에 추가할지 snapshot payload에 포함할지 결정.
+
+권장 결정:
+
+- [ ] 90% 목표에는 direct finish 제외, finish readiness assist까지만 포함.
+- [ ] 90% 목표에는 direct task edit 제외, CEO proposal route까지만 포함.
+- [ ] intervention 첫 액션은 CEO follow-up.
+- [ ] audit은 먼저 session-local, durable은 후속.
+- [ ] UI copy는 Korean-first + CLI command는 monospace English.
