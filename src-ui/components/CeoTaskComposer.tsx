@@ -12,6 +12,7 @@ export function CeoTaskComposer({ onCreateJob, refreshStatus = 'idle', lastRefre
   const [inFlight, setInFlight] = useState(false);
   const submitInFlightRef = useRef(false);
   const [result, setResult] = useState<JobCreateResult | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const validation = useMemo(() => validateCeoTaskRequest(request), [request]);
   const canSubmit = validation.ok && !inFlight && !submitInFlightRef.current;
 
@@ -39,37 +40,40 @@ export function CeoTaskComposer({ onCreateJob, refreshStatus = 'idle', lastRefre
   }
 
   return (
-    <section className="ceo-task-composer" aria-label="CEO task composer">
+    <section className={expanded ? 'ceo-task-composer expanded' : 'ceo-task-composer compact'} aria-label="CEO task composer">
       <div className="composer-copy">
         <p className="eyebrow">Controlled action</p>
-        <h2>CEO에게 작업 주기 / Send work to CEO</h2>
-        <p>Creates a CEO-led AgentDock job only. No arbitrary shell, recruit, send, finish, report, or task-edit controls.</p>
+        <h2>Send work to CEO</h2>
+        <p id="ceo-task-trust" className="trust-copy">Creates a CEO-led job only · no arbitrary shell · duplicate submit locked.</p>
       </div>
-      <label className="composer-input-label" htmlFor="ceo-task-request">
-        CEO task request
-      </label>
-      <textarea
-        id="ceo-task-request"
-        value={request}
-        maxLength={MAX_CEO_TASK_CHARS}
-        onChange={(event) => setRequest(event.target.value)}
-        placeholder="Describe the work for the CEO to analyze, recruit, assign, and facilitate..."
-        aria-describedby="ceo-task-validation ceo-task-trust"
-        disabled={inFlight}
-        rows={4}
-      />
+      <div className="composer-entry">
+        <label className="composer-input-label" htmlFor="ceo-task-request">
+          CEO task request
+        </label>
+        <textarea
+          id="ceo-task-request"
+          value={request}
+          maxLength={MAX_CEO_TASK_CHARS}
+          onChange={(event) => setRequest(event.target.value)}
+          placeholder="Describe the CEO-led work..."
+          aria-describedby="ceo-task-validation ceo-task-trust"
+          disabled={inFlight}
+          rows={expanded ? 3 : 1}
+        />
+      </div>
       <div className="composer-actions">
         <span id="ceo-task-validation" className={validation.ok ? 'composer-validation ok' : 'composer-validation warn'}>
-          {validation.ok ? `${request.trim().length}/${MAX_CEO_TASK_CHARS} characters` : validation.message}
+          {validation.ok ? `${request.trim().length}/${MAX_CEO_TASK_CHARS}` : validation.message}
         </span>
+        <button type="button" className="composer-expand-button" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
+          {expanded ? 'Collapse' : 'Expand'}
+        </button>
         <button type="button" onClick={submit} disabled={!canSubmit}>
-          {inFlight ? 'Sending to CEO…' : 'Send to CEO'}
+          {inFlight ? 'Sending…' : 'Send to CEO'}
         </button>
       </div>
-      <p id="ceo-task-trust" className="trust-copy">Controlled action · creates a CEO-led job only · no arbitrary shell · duplicate submit locked while sending</p>
       <p className={`snapshot-refresh-state state-${refreshStatus}`} aria-live="polite">
-        Snapshot refresh after create: {refreshStatus}
-        {lastRefreshAt ? ` · last refreshed ${new Date(lastRefreshAt).toLocaleTimeString()}` : ''}
+        Refresh after create: {refreshStatus}{lastRefreshAt ? ` · ${new Date(lastRefreshAt).toLocaleTimeString()}` : ''}
       </p>
       {result ? (
         <div className={result.ok ? 'composer-result success' : 'composer-result failure'} role="status" aria-live="polite">
@@ -77,7 +81,7 @@ export function CeoTaskComposer({ onCreateJob, refreshStatus = 'idle', lastRefre
             <>
               <strong>{result.jobId ? `Created ${result.jobId}` : 'CEO-led job created'}</strong>
               {result.jobPath ? <code>{result.jobPath}</code> : null}
-              <span>{result.message || 'Snapshot refresh will show CEO facilitation progress.'}</span>
+              <span>{result.message || 'Snapshot refresh will show facilitation progress.'}</span>
             </>
           ) : (
             <>
