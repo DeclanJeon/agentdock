@@ -96,9 +96,9 @@ export function InterventionPanel({ snapshot, onControlledAction }: Props) {
         <div className="intervention-grid">
           <article>
             <h3>CEO follow-up</h3>
-            <p>{jobId ? `Active job ${jobId}의 coordinator에게 후속 지시를 보냅니다.` : 'No active job: follow-up disabled.'}</p>
+            <p>{jobId ? `작업 ${jobId}의 coordinator에게 후속 지시를 보냅니다.` : '활성 작업이 없어 후속 지시를 보낼 수 없습니다.'}</p>
             <textarea aria-label="CEO follow-up message" value={followup} onChange={(event) => setFollowup(event.target.value)} placeholder="후속 지시를 입력하세요" />
-            <button type="button" disabled={!canRun || !followup.trim()} onClick={() => run('agentdock_job_followup', { message: followup }, () => setFollowup(''))}>{busyAction === 'agentdock_job_followup' ? 'Sending…' : 'Send follow-up'}</button>
+            <button type="button" disabled={!canRun || !followup.trim()} onClick={() => run('agentdock_job_followup', { message: followup }, () => setFollowup(''))}>{busyAction === 'agentdock_job_followup' ? '전송 중…' : '후속 지시 전송'}</button>
           </article>
           <article>
             <h3>Selected-team broadcast</h3>
@@ -112,7 +112,7 @@ export function InterventionPanel({ snapshot, onControlledAction }: Props) {
               {selected.map((role) => <option key={role.id} value={role.id}>{role.id}</option>)}
             </select>
             <textarea aria-label="Role direct send message" value={roleMessage} onChange={(event) => setRoleMessage(event.target.value)} placeholder="역할별 직접 메시지" />
-            <button type="button" disabled={!canRun || !roleTarget || !roleMessage.trim()} onClick={() => run('agentdock_role_send', { role: roleTarget, message: roleMessage }, () => setRoleMessage(''))}>{busyAction === 'agentdock_role_send' ? 'Sending…' : 'Send to role'}</button>
+            <button type="button" disabled={!canRun || !roleTarget || !roleMessage.trim()} onClick={() => run('agentdock_role_send', { role: roleTarget, message: roleMessage }, () => setRoleMessage(''))}>{busyAction === 'agentdock_role_send' ? '전송 중…' : 'Send to role'}</button>
           </article>
           <article>
             <h3>Recruit role</h3>
@@ -130,7 +130,7 @@ export function InterventionPanel({ snapshot, onControlledAction }: Props) {
               {selected.map((role) => <option key={role.id} value={role.id}>{role.id}</option>)}
             </select>
             <textarea aria-label="Task proposal message" value={taskProposal} onChange={(event) => setTaskProposal(event.target.value)} placeholder="TASKS/*.md 직접 수정 대신 coordinator에게 보낼 제안" />
-            <button type="button" disabled={!canRun || !taskRole || !taskProposal.trim()} onClick={() => run('agentdock_task_proposal', { role: taskRole, proposal: taskProposal }, () => setTaskProposal(''))}>{busyAction === 'agentdock_task_proposal' ? 'Sending…' : 'Send proposal'}</button>
+            <button type="button" disabled={!canRun || !taskRole || !taskProposal.trim()} onClick={() => run('agentdock_task_proposal', { role: taskRole, proposal: taskProposal }, () => setTaskProposal(''))}>{busyAction === 'agentdock_task_proposal' ? '전송 중…' : 'Send proposal'}</button>
           </article>
           <article>
             <h3>Submit role report</h3>

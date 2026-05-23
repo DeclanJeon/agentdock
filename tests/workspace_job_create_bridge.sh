@@ -22,6 +22,8 @@ from pathlib import Path
 allowed = {
     'workspace_snapshot',
     'workspace_watch_start',
+    'workspace_model',
+    'workspace_model_set',
     'agentdock_job_create',
     'agentdock_job_followup',
     'agentdock_team_broadcast',

@@ -19,8 +19,12 @@ FIXTURES = {
     "dense-20-roles.json",
     "dense-50-roles.json",
     "stale-last-good.json",
-    "demo-fallback.json",
     "error-state.json",
+    "orchestration-solo.json",
+    "orchestration-standard-team.json",
+    "orchestration-qa-blocked.json",
+    "orchestration-active-tft.json",
+    "orchestration-legacy.json",
 }
 REQUIRED_TOP = {
     "schema_version",
@@ -125,10 +129,9 @@ def validate_fixture(path: Path) -> dict:
             fail(path, "must contain exactly 50 roles")
         if data["layout"]["density"] not in {"dense", "crowded"}:
             fail(path, "50-role fixture must advertise dense/crowded layout")
-    if path.name in {"stale-last-good.json", "demo-fallback.json", "error-state.json"}:
+    if path.name in {"stale-last-good.json", "error-state.json"}:
         expected = {
             "stale-last-good.json": "stale",
-            "demo-fallback.json": "demo",
             "error-state.json": "error",
         }[path.name]
         if data.get("source_mode") != expected:

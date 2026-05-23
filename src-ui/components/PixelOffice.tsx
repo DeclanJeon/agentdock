@@ -11,7 +11,7 @@ export function PixelOffice({ snapshot, selectedRoleId, onSelectRole }: { snapsh
     <main className="pixel-office" aria-label="Pixel office workspace map">
       <div className="mission-room">
         <h2>Mission Room</h2>
-        <p>{snapshot.job?.final_ready_reason ?? 'No active job reason available.'}</p>
+        <p>{snapshot.job?.final_ready_reason ?? '활성 작업 설명이 아직 없습니다.'}</p>
       </div>
       <FinalReadinessPanel snapshot={snapshot} />
       <ReportDesk snapshot={snapshot} onSelectRole={onSelectRole} />

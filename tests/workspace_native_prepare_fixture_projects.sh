@@ -19,7 +19,6 @@ state_to_fixture = {
     'dense-20': 'dense-20-roles.json',
     'dense-50-search-filter': 'dense-50-roles.json',
     'stale-last-good': 'stale-last-good.json',
-    'demo-fallback': 'demo-fallback.json',
     'error-state': 'error-state.json',
     'keyboard-focus': 'active-normal.json',
     'reduced-motion': 'active-normal.json',

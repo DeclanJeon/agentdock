@@ -17,7 +17,7 @@
 <p align="center">
   <a href="https://github.com/DeclanJeon/agentdock/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/DeclanJeon/agentdock/ci.yml?branch=main&label=ci&logo=github"></a>
   <a href="https://github.com/DeclanJeon/agentdock/releases"><img alt="Release" src="https://img.shields.io/github/v/release/DeclanJeon/agentdock?label=release&logo=github"></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-0.2.1-0f766e">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.0-0f766e">
   <img alt="Runtime" src="https://img.shields.io/badge/runtime-Hermes%20Agent-111827">
   <img alt="Shell" src="https://img.shields.io/badge/shell-Bash-4EAA25?logo=gnubash&logoColor=white">
   <img alt="tmux" src="https://img.shields.io/badge/orchestration-tmux-1f2937">
@@ -58,6 +58,16 @@ AgentDock intentionally keeps Codex, OpenCode, Gemini, Claude, and other CLIs ou
 | Local-first state | Bash, tmux, Hermes Agent, and project files. No daemon, hosted scheduler, or remote control plane. |
 | Safer project isolation | New projects use a root-hash tmux session name, reducing collisions between directories with the same basename. |
 | Release/version guard | `scripts/check-version.sh` keeps `VERSION`, README, smoke tests, and release tags synchronized. |
+
+## What's New In 0.3.0
+
+- Added adaptive CEO orchestration: every new job writes `ORCHESTRATION.json` with mode, complexity, risk, intent, QA/security policy, selected roles, rejected-role reasons, team caps, and runtime model metadata.
+- Added lightweight-vs-team behavior: simple jobs stay solo, focused jobs reuse at most one helper, standard jobs build a capped reusable team, and critical jobs require review/QA gates.
+- Added enforced QA and TFT gates: QA-required jobs cannot finish until a passing QA/review report exists, and active blocking TFTs must be closed before finalization.
+- Added `agentdock job tft`, `agentdock job meeting`, and `agentdock job tick` for bounded cross-role blockers, decision records, and safe CEO next-action previews/apply follow-ups.
+- Added dependency, action-audit, communication, meeting, write-conflict, and recovery artifacts to snapshots and the Visual Workspace UI so users can see why teams, blockers, and decisions exist.
+- Added UI model settings delivery to Hermes, removed runtime mock/demo fallback data, simplified user-facing live status copy, and added the CEO orchestration panel.
+- Added adaptive orchestration docs, recovery docs, snapshot fixtures, and regression tests for orchestration modes, QA gates, TFTs, meetings, dependencies, and desktop no-write boundaries.
 
 ## What's New In 0.2.1
 
@@ -401,15 +411,15 @@ bash scripts/check-version.sh
 Create a release:
 
 ```bash
-git tag v0.2.1
-git push origin v0.2.1
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
 Release artifacts include `SHA256SUMS` so users can verify downloaded archives before installing.
 
 ## Status
 
-Version `0.2.1` is the current local release. It is intentionally Bash-first and conservative: no daemon, no hosted control plane, no hidden remote scheduler.
+Version `0.3.0` is the current local release. It is intentionally Bash-first and conservative: no daemon, no hosted control plane, no hidden remote scheduler.
 
 Current gaps:
 

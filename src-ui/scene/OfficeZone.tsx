@@ -30,7 +30,7 @@ export function OfficeZone({
         <p>{zone.subtitle}</p>
       </header>
       <div className="station-row" aria-label={`${zone.title} role stations`}>
-        {roles.length === 0 ? <span className="empty-station">No role stationed here</span> : null}
+        {roles.length === 0 ? <span className="empty-station">배정된 역할 없음</span> : null}
         {roles.map((role) => (
           <RoleStation key={role.id} role={role} hiddenByFilter={!(visibleRoleIds?.has(role.id) ?? true)} selected={role.id === selectedRoleId} onSelectRole={onSelectRole} />
         ))}

@@ -1,1 +1,1 @@
-{}
+{"main-event-listener":{"identifier":"main-event-listener","description":"Allow the main Visual Office window to listen for and clean up workspace change events emitted by the local Tauri backend.","local":true,"windows":["main"],"permissions":["core:event:allow-listen","core:event:allow-unlisten"]}}

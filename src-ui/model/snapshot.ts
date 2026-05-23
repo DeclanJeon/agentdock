@@ -55,6 +55,101 @@ export interface WorkspaceAlert {
 
 export type WorkspaceWarning = string | WorkspaceAlert | Record<string, unknown>;
 
+export interface WorkspaceModelOption {
+  label?: string;
+  provider: string;
+  model: string;
+}
+
+export interface WorkspaceModelSettings {
+  ok?: boolean;
+  message?: string;
+  provider: string;
+  model: string;
+  source?: 'project' | 'hermes-config' | 'default' | string;
+  options?: WorkspaceModelOption[];
+  global_persisted?: boolean;
+  applied_running_count?: number;
+  applied_roles?: string[];
+}
+
+export interface WorkspaceOrchestration {
+  schema_version?: string;
+  job_id?: string;
+  mode?: 'idle' | 'solo_direct' | 'assisted_single_lane' | 'standard_team' | 'critical_review' | 'legacy_controlled_actions' | string;
+  complexity?: string;
+  risk?: string;
+  intents?: string[];
+  requires_code_change?: boolean;
+  requires_user_visible_change?: boolean;
+  requires_qa?: boolean;
+  requires_security_review?: boolean;
+  approval_required?: boolean;
+  team_cap?: number;
+  reason?: string;
+  budget?: {
+    max_roles?: number;
+    max_tfts?: number;
+    max_meetings?: number;
+    expected_minutes?: number;
+    escalation_requires_reason?: boolean;
+  };
+  runtime?: {
+    provider?: string;
+    model?: string;
+    source?: string;
+  };
+  selected_roles?: string[];
+  selected_role_details?: Array<{
+    role?: string;
+    source?: 'reuse' | 'recruit' | string;
+    template?: string;
+    mission?: string;
+    distinct_output?: string;
+  }>;
+  rejected_roles?: Array<string | { template?: string; role?: string; reason?: string }>;
+}
+
+export interface WorkspaceQaStatus {
+  required?: boolean;
+  status?: 'not_required' | 'pending' | 'passed' | 'failed' | string;
+  path?: string;
+  reason?: string;
+}
+
+export interface WorkspaceDependencies {
+  schema_version?: string;
+  items?: Array<{
+    role?: string;
+    waiting_on?: string;
+    type?: string;
+    status?: string;
+    reason?: string;
+    source_path?: string;
+  }>;
+}
+
+export interface WorkspaceMeetings {
+  schema_version?: string;
+  items?: Array<{
+    title?: string;
+    status?: string;
+    reason?: string;
+    decision?: string;
+    source_path?: string;
+  }>;
+}
+
+export interface WorkspaceWriteConflicts {
+  schema_version?: string;
+  items?: Array<{ file?: string; roles?: string[]; status?: string }>;
+}
+
+export interface WorkspaceCommunications {
+  schema_version?: string;
+  items?: Array<{ time?: string; actor?: string; action?: string; status?: string; summary?: string; source_path?: string }>;
+}
+
 export interface WorkspaceSnapshot {
   schema_version?: string;
   generated_at?: string;
@@ -91,6 +186,13 @@ export interface WorkspaceSnapshot {
     allowed_read_commands?: string[];
     allowed_actions?: string[];
   };
+  orchestration?: WorkspaceOrchestration;
+  dependencies?: WorkspaceDependencies;
+  meetings?: WorkspaceMeetings;
+  write_conflicts?: WorkspaceWriteConflicts;
+  communications?: WorkspaceCommunications;
+  qa?: WorkspaceQaStatus;
+  model?: WorkspaceModelSettings;
   layout?: {
     role_count?: number;
     density?: string;
@@ -117,6 +219,7 @@ export interface WorkspaceSnapshot {
     status?: string;
     members?: string[];
     goal?: string;
+    exit_condition?: string;
   }>;
   history?: {
     active_job_id?: string;

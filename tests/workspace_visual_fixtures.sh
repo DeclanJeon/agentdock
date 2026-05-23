@@ -7,7 +7,7 @@ cd "$ROOT"
 fail() { echo "workspace visual fixtures test failed: $*" >&2; exit 1; }
 
 [[ -f src-ui/model/scene.ts ]] || fail "SceneModel selector module missing"
-[[ -f src-ui/model/fixtures.ts ]] || fail "empty fixture module missing"
+[[ -f src-ui/model/emptySnapshot.ts ]] || fail "empty runtime state module missing"
 [[ -f src-ui/scene/OfficeScene.tsx ]] || fail "OfficeScene missing"
 [[ -f src-ui/scene/OfficeZone.tsx ]] || fail "OfficeZone missing"
 [[ -f src-ui/scene/RoleStation.tsx ]] || fail "RoleStation missing"

@@ -1,0 +1,135 @@
+{
+  "alerts": [],
+  "commands": {
+    "allowed_read_commands": [
+      "agentdock team",
+      "agentdock report --fast",
+      "agentdock inbox <role>",
+      "agentdock workspace snapshot --json"
+    ],
+    "mode": "read-only",
+    "write_bridge_enabled": false
+  },
+  "events": [],
+  "generated_at": "2026-05-22T00:00:00Z",
+  "job": {
+    "final_ready": false,
+    "final_ready_reason": "Simple solo job; no team required.",
+    "id": "JOB-fixture-solo",
+    "lifecycle": "executing",
+    "lifecycle_status": "executing",
+    "path": "/tmp/agentdock-fixture/.agent-work/07_JOBS/JOB-FIXTURE",
+    "readme_path": "/tmp/agentdock-fixture/.agent-work/07_JOBS/JOB-FIXTURE/README.md"
+  },
+  "layout": {
+    "density": "normal",
+    "density_thresholds": {
+      "crowded": 50,
+      "dense": 20
+    },
+    "role_count": 1
+  },
+  "locks": {
+    "path": ".agent-work/LOCKS.md",
+    "present": true
+  },
+  "org": {
+    "model": "fixture",
+    "zones": [
+      "CEO Office",
+      "Engineering",
+      "QA",
+      "Delivery"
+    ]
+  },
+  "project": {
+    "name": "agentdock-fixture-active-normal",
+    "root": "/tmp/agentdock-fixture",
+    "session": "fixture-session",
+    "session_name": "fixture-session"
+  },
+  "reports": {
+    "missing_roles": [],
+    "required": 4,
+    "required_selected_roles": 0,
+    "submitted": 4,
+    "submitted_selected_roles": 0,
+    "total": 4
+  },
+  "roles": [
+    {
+      "avatar": {
+        "label": "OR",
+        "type": "pixel"
+      },
+      "configured": true,
+      "department": "CEO Office",
+      "display": "Orchestrator",
+      "id": "orchestrator",
+      "latest_report_path": ".agent-work/07_JOBS/JOB-FIXTURE/REPORTS/orchestrator.md",
+      "logical_node": "ceo-office",
+      "logical_node_label": "CEO Office",
+      "manager_chain": [
+        "orchestrator"
+      ],
+      "pane_id": null,
+      "role_id": "orchestrator",
+      "running_pane": false,
+      "selected": true,
+      "source_paths": [
+        ".agentdock/prompts/orchestrator.md"
+      ],
+      "status": "assigned",
+      "status_reason": "Fixture status: reported",
+      "task_path": ".agent-work/07_JOBS/JOB-FIXTURE/TASKS/orchestrator.md",
+      "tier": "worker"
+    }
+  ],
+  "schema_version": "workspace.snapshot.v1",
+  "status_taxonomy": {
+    "assigned": "Task assigned",
+    "blocked": "Blocked",
+    "configured": "Role prompt configured",
+    "final_ready": "Ready for finish",
+    "online": "Pane online",
+    "reported": "Report submitted",
+    "working": "Work in progress"
+  },
+  "support": {
+    "linux": true,
+    "macos": true,
+    "windows": false
+  },
+  "warnings": [],
+  "orchestration": {
+    "schema_version": "agentdock.orchestration.v1",
+    "mode": "solo_direct",
+    "complexity": "small",
+    "risk": "low",
+    "reason": "Small job; no team needed.",
+    "requires_qa": false,
+    "team_cap": 1,
+    "selected_roles": [
+      "orchestrator"
+    ],
+    "rejected_roles": [
+      {
+        "template": "agency-specialist-team",
+        "reason": "Coordination overhead exceeds work size."
+      }
+    ]
+  },
+  "qa": {
+    "required": false,
+    "status": "not_required"
+  },
+  "dependencies": {
+    "schema_version": "agentdock.dependencies.v1",
+    "items": []
+  },
+  "meetings": {
+    "schema_version": "agentdock.meetings.v1",
+    "items": []
+  },
+  "tfts": []
+}

@@ -7,7 +7,7 @@ cd "$ROOT"
 fail() { echo "workspace visual scene test failed: $*" >&2; exit 1; }
 
 [[ -f src-ui/model/scene.ts ]] || fail "SceneModel derivation missing"
-[[ -f src-ui/model/fixtures.ts ]] || fail "workspace fixtures helper missing"
+[[ -f src-ui/model/emptySnapshot.ts ]] || fail "workspace empty-state helper missing"
 [[ -f src-ui/scene/OfficeScene.tsx ]] || fail "OfficeScene missing"
 [[ -f src-ui/scene/SceneViewport.tsx ]] || fail "SceneViewport missing"
 [[ -f src-ui/scene/OfficeZone.tsx ]] || fail "OfficeZone missing"
@@ -47,7 +47,7 @@ if command_idx < 0 or composer_idx < 0:
     raise SystemExit('primary CEO command center/composer missing')
 if not (command_idx < mainframe_idx and command_idx < composer_idx < mainframe_idx):
     raise SystemExit('CEO task composer must stay in the primary command center above the workspace')
-for marker in ['snapshot-control-card', '<LiveRefreshPanel', '<OperatorGuidePanel', '<FacilitationTimeline', '<TeamActivityPanel', '<ActionAuditPanel', '<JobHistoryPanel', '<InterventionPanel']:
+for marker in ['<WorkspaceStatusCard', '<OperatorGuidePanel', '<FacilitationTimeline', '<TeamActivityPanel', '<ActionAuditPanel', '<JobHistoryPanel', '<InterventionPanel']:
     idx = app.find(marker)
     if idx < 0:
         raise SystemExit(f'{marker} missing from sidecar')
@@ -83,24 +83,27 @@ grep -q '\.final-gate-scene' src-ui/styles.css || fail "final gate scene styles 
 grep -q '\.reference-top-bar' src-ui/styles.css || fail "reference top status bar styles missing"
 grep -q '\.reference-nav-rail' src-ui/styles.css || fail "reference left nav rail styles missing"
 grep -q '\.bottom-trust-bar' src-ui/styles.css || fail "reference bottom trust bar styles missing"
-grep -q 'Security Nook' src-ui/scene/OfficeScene.tsx || fail "Security Nook read-only surface missing"
+grep -q '안전 구역' src-ui/scene/OfficeScene.tsx || fail "safe read-only surface missing"
 grep -q 'BottomTrustBar' src-ui/scene/OfficeScene.tsx || fail "bottom trust bar component missing"
 grep -q 'reference-inspector' src-ui/scene/SceneInspector.tsx || fail "reference right inspector missing"
 grep -q 'AgentDock Visual Office' src-ui/components/TopHud.tsx || fail "reference product title missing"
-grep -q 'write bridge disabled' src-ui/components/TopHud.tsx || fail "write bridge disabled top badge missing"
+grep -q '안전 모드' src-ui/components/TopHud.tsx || fail "safe mode top badge missing"
 grep -q 'filterRolesForScene' src-ui/scene/OfficeScene.tsx || fail "OfficeScene must apply search/filter to visible roles"
 grep -q 'activeFilter' src-ui/scene/DenseRoleNavigator.tsx || fail "DenseRoleNavigator active filter state missing"
 grep -q 'onSectionChange' src-ui/scene/DenseRoleNavigator.tsx || fail "DenseRoleNavigator section click handler missing"
 grep -q 'selectNavSection' src-ui/scene/OfficeScene.tsx || fail "OfficeScene section navigation mapping missing"
 grep -q 'TeamActivityPanel' src-ui/App.tsx || fail "team activity panel missing from app"
-grep -q 'LiveRefreshPanel' src-ui/App.tsx || fail "live refresh panel missing from app"
+grep -q 'WorkspaceStatusCard' src-ui/App.tsx || fail "user-facing workspace status card missing from app"
+if grep -q 'LiveRefreshPanel\|Live sync\|감시 불가\|파일 변경 시 자동 갱신' src-ui/App.tsx src-ui/styles.css; then
+  fail "technical live sync status must stay hidden from the user UI"
+fi
 grep -q 'OperatorGuidePanel' src-ui/App.tsx || fail "operator guide panel missing from app"
 grep -q 'filteredRoleIds' src-ui/scene/OfficeScene.tsx || fail "OfficeScene filtered role id set missing"
 grep -q 'activity-' src-ui/scene/AgentSprite.tsx || fail "AgentSprite activity animation classes missing"
 grep -q 'work-tool' src-ui/scene/AgentSprite.tsx || fail "AgentSprite work tool overlay missing"
 grep -q 'motion-trail' src-ui/scene/AgentSprite.tsx || fail "AgentSprite motion trail missing"
 grep -q 'spritePace' src-ui/styles.css || fail "sprite movement keyframes missing"
-grep -q 'live-refresh-panel' src-ui/styles.css || fail "live refresh panel styles missing"
+grep -q 'workspace-status-card' src-ui/styles.css || fail "workspace status card styles missing"
 grep -q 'operator-guide-panel' src-ui/styles.css || fail "operator guide styles missing"
 
 grep -q 'prefers-reduced-motion' src-ui/styles.css || fail "reduced motion CSS gate missing"

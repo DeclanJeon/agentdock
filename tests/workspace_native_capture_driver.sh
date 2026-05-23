@@ -103,7 +103,6 @@ Required states:
 - dense-20
 - dense-50-search-filter
 - stale-last-good
-- demo-fallback
 - error-state
 - keyboard-focus
 - reduced-motion
@@ -123,7 +122,7 @@ out = Path(sys.argv[3])
 template = sys.argv[4]
 states = [
   'live-normal', 'missing-reports', 'blocker-present', 'final-ready',
-  'dense-20', 'dense-50-search-filter', 'stale-last-good', 'demo-fallback',
+  'dense-20', 'dense-50-search-filter', 'stale-last-good',
   'error-state', 'keyboard-focus', 'reduced-motion', 'read-only-security',
 ]
 out.mkdir(parents=True, exist_ok=True)

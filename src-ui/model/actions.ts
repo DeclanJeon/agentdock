@@ -1,4 +1,4 @@
-import { redactText, type SnapshotErrorKind } from './snapshot';
+import { redactText, type SnapshotErrorKind, type WorkspaceModelSettings } from './snapshot';
 
 export const MAX_CEO_TASK_CHARS = 8000;
 
@@ -61,4 +61,20 @@ export interface ControlledActionResult {
 
 export function controlledActionErrorMessage(result: ControlledActionResult): string {
   return redactText(result.message || result.stderr || result.stdout || result.errorKind || 'AgentDock controlled action failed.');
+}
+
+export interface WorkspaceModelCommandResult {
+  ok: boolean;
+  statusCode: number;
+  stdout: string;
+  stderr: string;
+  command: string[];
+  parsed?: WorkspaceModelSettings;
+  errorKind?: SnapshotErrorKind;
+  message?: string;
+  durationMs?: number;
+}
+
+export function workspaceModelErrorMessage(result: WorkspaceModelCommandResult): string {
+  return redactText(result.message || result.stderr || result.stdout || result.errorKind || 'AgentDock model command failed.');
 }

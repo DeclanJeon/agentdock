@@ -11,7 +11,7 @@ export function Room({ room, selectedRoleId, onSelectRole }: { room: OfficeRoom;
       </div>
       <div className="room-grid">
         {room.roles.length === 0 ? (
-          <p className="empty-room">No active character</p>
+          <p className="empty-room">활성 역할 없음</p>
         ) : (
           room.roles.map((role) => (
             <AgentCharacter key={role.id} role={role} selected={role.id === selectedRoleId} onSelect={onSelectRole} />

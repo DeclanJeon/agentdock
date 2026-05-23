@@ -26,17 +26,17 @@ export function filterRolesForScene(roles: SceneRole[], query: string, activeFil
 }
 
 function BottomTrustBar({ snapshot, mode }: { snapshot: WorkspaceSnapshot; mode: WorkspaceMode }) {
-  const projectPath = snapshot.project?.root ?? '~/projects/agentdock';
-  const compactPath = projectPath.replace('/home/declan/Documents/Develop/Project', '~');
+  const projectPath = snapshot.project?.root ?? '';
+  const compactPath = projectPath ? projectPath.replace('/home/declan/Documents/Develop/Project', '~') : '프로젝트 연결 대기';
   return (
-    <footer className="bottom-trust-bar" aria-label="Read-only source and runtime trust status">
-      <span><strong>Hermes</strong> running <i aria-hidden="true" className="status-dot good" /></span>
-      <span><strong>tmux</strong> active <i aria-hidden="true" className="status-dot good" /></span>
-      <span><strong>Session</strong> {snapshot.project?.session ?? snapshot.project?.session_name ?? 'agentdock'}</span>
-      <span><strong>Project Path</strong> {compactPath}</span>
-      <span><strong>Workspace</strong> read-only 🔒</span>
-      <span><strong>Snapshot</strong> {snapshot.generated_at ? new Date(snapshot.generated_at).toLocaleString() : 'pending'}</span>
-      <span><strong>Mode</strong> visual-office ({mode})</span>
+    <footer className="bottom-trust-bar" aria-label="Local workspace status">
+      <span><strong>Hermes</strong> 준비됨 <i aria-hidden="true" className="status-dot good" /></span>
+      <span><strong>tmux</strong> 연결됨 <i aria-hidden="true" className="status-dot good" /></span>
+      <span><strong>세션</strong> {snapshot.project?.session ?? snapshot.project?.session_name ?? '대기'}</span>
+      <span><strong>프로젝트</strong> {compactPath}</span>
+      <span><strong>안전</strong> 읽기 전용 🔒</span>
+      <span><strong>업데이트</strong> {snapshot.generated_at ? new Date(snapshot.generated_at).toLocaleString() : '대기'}</span>
+      <span><strong>화면</strong> 오피스 ({mode})</span>
     </footer>
   );
 }
@@ -124,10 +124,10 @@ function OfficeSceneView({ snapshot, mode, selectedRoleId, onSelectRole }: { sna
           <ReportDeskScene scene={scene} onSelectRole={onSelectRole} />
           <BlockerDeskScene scene={scene} />
           <FinalGateScene scene={scene} />
-          <section className="scene-desk security-nook-scene" aria-label="Security Nook read-only boundary">
-            <p className="eyebrow">Security Nook</p>
-            <h2>🔒 Read-only</h2>
-            <p>Read-only snapshot sourced · write bridge disabled</p>
+          <section className="scene-desk security-nook-scene" aria-label="Safe read-only boundary">
+            <p className="eyebrow">안전 구역</p>
+            <h2>🔒 읽기 전용</h2>
+            <p>앱은 현재 작업 상태를 보여주고, 실행은 승인된 액션으로만 진행합니다.</p>
           </section>
         </div>
       </SceneViewport>

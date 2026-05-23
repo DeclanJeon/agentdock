@@ -113,7 +113,7 @@ export function SceneInspector({ snapshot, role, scene }: { snapshot: WorkspaceS
       <section className="inspector-section latest-report-card" aria-label="Latest report preview">
         <h3>Latest Report</h3>
         <p>{role.role.latest_report_path ? role.recentEventLabel : 'No report submitted yet'}</p>
-        <small>{role.role.latest_report_path ?? 'Read-only snapshot has no report path for this role.'}</small>
+        <small>{role.role.latest_report_path ?? '이 역할의 보고 경로가 아직 없습니다.'}</small>
       </section>
 
       <section className="inspector-section office-status-summary" aria-label="Office status summary">

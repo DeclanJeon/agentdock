@@ -11,6 +11,9 @@ function nextActionForRole(roleId: string, reportState: string, status?: string)
 export function TeamActivityPanel({ snapshot, selectedRoleId, onSelectRole }: { snapshot: WorkspaceSnapshot; selectedRoleId?: string; onSelectRole?: (role: WorkspaceRole) => void }) {
   const roles = (snapshot.roles ?? []).filter((role) => role.selected);
   const blockers = new Set((snapshot.alerts ?? []).map((alert) => alert.role ?? alert.owner).filter(Boolean));
+  const dependenciesByRole = new Map((snapshot.dependencies?.items ?? [])
+    .filter((item) => item.role && item.waiting_on && item.status !== 'closed')
+    .map((item) => [item.role as string, item]));
   return (
     <section className="team-activity-panel" aria-label="Selected team activity summary">
       <header>
@@ -22,6 +25,7 @@ export function TeamActivityPanel({ snapshot, selectedRoleId, onSelectRole }: { 
           {roles.map((role) => {
             const report = reportStateForRole(role, snapshot);
             const blocked = role.status === 'blocked' || blockers.has(role.id);
+            const dependency = dependenciesByRole.get(role.id);
             const active = selectedRoleId === role.id;
             return (
               <li key={role.id} className={`${blocked ? 'blocked' : report === 'reported' ? 'reported' : report === 'report needed' ? 'needs-report' : ''} ${active ? 'selected' : ''}`}>
@@ -31,6 +35,7 @@ export function TeamActivityPanel({ snapshot, selectedRoleId, onSelectRole }: { 
                     <span>{blocked ? '블로커 있음' : statusLabel(role.status)}</span>
                   </div>
                   <p>{roleActivityLabel(role, snapshot)}</p>
+                  {dependency ? <p className="role-dependency-note">대기: {dependency.waiting_on} · {dependency.reason ?? '의존성 대기'}</p> : null}
                   <small>{nextActionForRole(role.id, report, blocked ? 'blocked' : role.status)}</small>
                 </button>
               </li>

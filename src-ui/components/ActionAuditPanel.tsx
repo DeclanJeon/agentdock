@@ -11,9 +11,9 @@ export function ActionAuditPanel({ events }: { events: ActionAuditEvent[] }) {
         <span className="auxiliary-summary-chip">{events.length} events</span>
       </summary>
       <div className="auxiliary-panel-body">
-        <p>이 session-local 로그는 현재 앱 세션에만 보관됩니다. 새로고침하면 사라지며, shell fallback은 제공하지 않습니다. Request/result text is redacted before display.</p>
+        <p>이 작업 기록은 현재 앱 세션에만 보관됩니다. 새로고침하면 사라지며, 요청/결과 텍스트는 민감 정보를 가린 뒤 표시됩니다.</p>
         {events.length === 0 ? (
-          <p className="empty-audit">No actions attempted in this session.</p>
+          <p className="empty-audit">이 세션에서 실행한 액션이 없습니다.</p>
         ) : (
           <ol>
             {events.map((event) => (

@@ -12,12 +12,14 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager};
 
 const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(10);
+const MODEL_UPDATE_TIMEOUT: Duration = Duration::from_secs(12);
 const JOB_CREATE_TIMEOUT: Duration = Duration::from_secs(30);
 const CONTROLLED_ACTION_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_JOB_REQUEST_CHARS: usize = 8000;
 const MAX_ACTION_MESSAGE_CHARS: usize = 4000;
 const MAX_SUMMARY_CHARS: usize = 4000;
 const MAX_ROLE_ID_CHARS: usize = 64;
+const MAX_MODEL_ID_CHARS: usize = 120;
 const WATCH_SCAN_INTERVAL: Duration = Duration::from_millis(1200);
 const WATCH_EVENT_COOLDOWN: Duration = Duration::from_millis(900);
 const WATCH_SCAN_FILE_LIMIT: usize = 6000;
@@ -158,6 +160,25 @@ fn validate_job_id(job_id: &str) -> Result<String, String> {
         return Err("job id must start with JOB-.".to_string());
     }
     Ok(value)
+}
+
+fn validate_model_id(label: &str, value: &str, max_chars: usize, allow_empty: bool) -> Result<String, String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        if allow_empty {
+            return Ok(String::new());
+        }
+        return Err(format!("{label} is empty."));
+    }
+    if trimmed.chars().count() > max_chars {
+        return Err(format!("{label} exceeds {max_chars} characters."));
+    }
+    if !trimmed.chars().all(|ch| {
+        ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | ':' | '/' | '@' | '+')
+    }) {
+        return Err(format!("{label} contains unsupported characters."));
+    }
+    Ok(trimmed.to_string())
 }
 
 fn build_followup_message(job_id: &str, message: &str) -> String {
@@ -812,6 +833,147 @@ fn workspace_snapshot(project_root: String) -> CommandResult {
             )
         }
     }
+}
+
+fn run_workspace_model_args(project_root: String, args: Vec<String>, started: Instant) -> CommandResult {
+    let requested_root = project_root_from_args(&project_root);
+    let canonical_root = match canonicalize_project_root(&requested_root) {
+        Ok(root) => root,
+        Err(message) => {
+            return result_from_error(
+                vec!["agentdock".to_string(), "workspace".to_string(), "model".to_string()],
+                SnapshotErrorKind::InvalidProject,
+                message,
+                started.elapsed().as_millis(),
+            );
+        }
+    };
+
+    if let Err(message) = validate_agentdock_project(&canonical_root) {
+        return result_from_error(
+            vec!["agentdock".to_string(), "workspace".to_string(), "model".to_string()],
+            SnapshotErrorKind::InvalidProject,
+            message,
+            started.elapsed().as_millis(),
+        );
+    }
+
+    let agentdock = resolve_agentdock(&canonical_root);
+    let command_vec: Vec<String> = std::iter::once(agentdock.clone())
+        .chain(args.clone())
+        .collect();
+    match run_command_with_timeout(&agentdock, &args, &canonical_root, MODEL_UPDATE_TIMEOUT) {
+        Ok(Ok(output)) => {
+            let stdout = redact_text(&String::from_utf8_lossy(&output.stdout));
+            let stderr = redact_text(&String::from_utf8_lossy(&output.stderr));
+            let status_code = output.status.code().unwrap_or(-1);
+            let parsed = if output.status.success() {
+                serde_json::from_str::<Value>(&stdout).ok()
+            } else {
+                None
+            };
+            let ok = output.status.success() && parsed.is_some();
+            let message = if ok {
+                "AI model settings loaded.".to_string()
+            } else if !stderr.is_empty() {
+                stderr.clone()
+            } else if !stdout.is_empty() {
+                stdout.clone()
+            } else {
+                format!("AgentDock model command failed with status {status_code}.")
+            };
+            CommandResult {
+                ok,
+                status_code,
+                stdout,
+                stderr,
+                command: command_vec,
+                parsed,
+                error_kind: if ok {
+                    SnapshotErrorKind::None
+                } else if output.status.success() {
+                    SnapshotErrorKind::InvalidJson
+                } else {
+                    SnapshotErrorKind::CommandFailed
+                },
+                message: redact_text(&message),
+                duration_ms: started.elapsed().as_millis(),
+            }
+        }
+        Ok(Err(())) => result_from_error(
+            command_vec,
+            SnapshotErrorKind::Timeout,
+            "AgentDock model command timed out.".to_string(),
+            started.elapsed().as_millis(),
+        ),
+        Err(error) => {
+            let kind = if error.kind() == io::ErrorKind::NotFound {
+                SnapshotErrorKind::MissingCli
+            } else {
+                SnapshotErrorKind::Io
+            };
+            result_from_error(command_vec, kind, error.to_string(), started.elapsed().as_millis())
+        }
+    }
+}
+
+#[tauri::command]
+fn workspace_model(project_root: String) -> CommandResult {
+    let started = Instant::now();
+    let requested_root = project_root_from_args(&project_root);
+    let args = vec![
+        "workspace".to_string(),
+        "model".to_string(),
+        "--json".to_string(),
+        "--project".to_string(),
+        requested_root,
+    ];
+    run_workspace_model_args(project_root, args, started)
+}
+
+#[tauri::command]
+fn workspace_model_set(project_root: String, model: String, provider: String) -> CommandResult {
+    let started = Instant::now();
+    let model = match validate_model_id("model", &model, MAX_MODEL_ID_CHARS, false) {
+        Ok(value) => value,
+        Err(message) => {
+            return result_from_error(
+                vec!["agentdock".to_string(), "workspace".to_string(), "model".to_string(), "set".to_string()],
+                SnapshotErrorKind::CommandFailed,
+                message,
+                started.elapsed().as_millis(),
+            );
+        }
+    };
+    let provider = match validate_model_id("provider", &provider, 80, true) {
+        Ok(value) => value,
+        Err(message) => {
+            return result_from_error(
+                vec!["agentdock".to_string(), "workspace".to_string(), "model".to_string(), "set".to_string()],
+                SnapshotErrorKind::CommandFailed,
+                message,
+                started.elapsed().as_millis(),
+            );
+        }
+    };
+    let requested_root = project_root_from_args(&project_root);
+    let mut args = vec![
+        "workspace".to_string(),
+        "model".to_string(),
+        "set".to_string(),
+        "--model".to_string(),
+        model,
+        "--apply-running".to_string(),
+        "--global".to_string(),
+        "--json".to_string(),
+        "--project".to_string(),
+        requested_root,
+    ];
+    if !provider.is_empty() {
+        args.insert(5, provider);
+        args.insert(5, "--provider".to_string());
+    }
+    run_workspace_model_args(project_root, args, started)
 }
 
 #[tauri::command]
@@ -1608,6 +1770,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             workspace_snapshot,
+            workspace_model,
+            workspace_model_set,
             workspace_watch_start,
             agentdock_job_create,
             agentdock_job_followup,
@@ -1728,6 +1892,21 @@ mod tests {
             validate_id("role", "agentdock-qa", MAX_ROLE_ID_CHARS).unwrap(),
             "agentdock-qa"
         );
+    }
+
+    #[test]
+    fn model_validation_allows_provider_model_ids_without_shell_chars() {
+        assert_eq!(
+            validate_model_id("model", "openai/gpt-5.1", MAX_MODEL_ID_CHARS, false).unwrap(),
+            "openai/gpt-5.1"
+        );
+        assert_eq!(
+            validate_model_id("provider", "openai-codex", 80, false).unwrap(),
+            "openai-codex"
+        );
+        assert!(validate_model_id("model", "gpt-5.5;rm", MAX_MODEL_ID_CHARS, false).is_err());
+        assert!(validate_model_id("model", "", MAX_MODEL_ID_CHARS, false).is_err());
+        assert_eq!(validate_model_id("provider", "", 80, true).unwrap(), "");
     }
 
     #[test]

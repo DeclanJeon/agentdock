@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-AGENTDOCK_VERSION="0.2.1"
+AGENTDOCK_VERSION="0.3.0"
 DEFAULT_AGENT_CLI="hermes"
 HERMES_INSTALL_URL="https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh"
 CLI_NAME="$(basename "$0")"
@@ -211,11 +211,14 @@ Commands:
   broadcast "..."         Send one shared message to every configured role
   inbox [role]            Show recent inbox and broadcast messages
   watch <role>            Poll a role inbox for unread messages
-  workspace snapshot --json|export --out <file>|app  Render visual workspace state
+  workspace snapshot --json|export --out <file>|app|model  Render visual workspace state
   report                  Summarize project state
   workspace snapshot --json       Print read-only Visual Office state JSON
   workspace export --out <file>   Write a static Visual Office HTML file
   workspace app [--project <path>] Launch the AgentDock Visual Office desktop app
+  workspace model --json       Show the Hermes model used by AgentDock roles
+  workspace model set --model <id> [--provider <id>] [--apply-running] [--global] --json
+                          Update Hermes model for future and running AgentDock roles
   update                  Print update guidance
   uninstall               Print uninstall guidance
 EOF
@@ -360,12 +363,499 @@ resolved_cli() {
 
 resolved_cli_cmd() {
   local cli="$1"
+  if [[ "$cli" == "$DEFAULT_AGENT_CLI" && ( -n "${HERMES_MODEL:-}" || -n "${HERMES_PROVIDER:-}" ) ]]; then
+    local cmd="$cli"
+    [[ -n "${HERMES_PROVIDER:-}" ]] && cmd="HERMES_INFERENCE_PROVIDER=$(quote "$HERMES_PROVIDER") $cmd"
+    [[ -n "${HERMES_MODEL:-}" ]] && cmd="HERMES_INFERENCE_MODEL=$(quote "$HERMES_MODEL") $cmd"
+    printf '%s\n' "$cmd"
+    return 0
+  fi
   if load_adapter "$cli"; then
     printf '%s\n' "$ADAPTER_RUN_CMD"
     return 0
   fi
   printf '%s\n' "$cli"
   return 1
+}
+
+validate_hermes_model_value() {
+  local value="${1:-}"
+  [[ -n "$value" ]] || die "model is required"
+  (( ${#value} <= 120 )) || die "model value is too long"
+  [[ "$value" =~ ^[A-Za-z0-9._:/@+-]+$ ]] || die "model contains unsupported characters"
+}
+
+validate_hermes_provider_value() {
+  local value="${1:-}"
+  [[ -n "$value" ]] || return 0
+  (( ${#value} <= 80 )) || die "provider value is too long"
+  [[ "$value" =~ ^[A-Za-z0-9._:-]+$ ]] || die "provider contains unsupported characters"
+}
+
+hermes_config_path() {
+  hermes config path 2>/dev/null || printf '%s\n' "$HOME/.hermes/config.yaml"
+}
+
+hermes_config_model_field() {
+  local field="$1" path
+  path="$(hermes_config_path)"
+  [[ -f "$path" ]] || return 1
+  awk -v field="$field" '
+    /^model:[[:space:]]*$/ { in_model=1; next }
+    in_model && /^[^[:space:]]/ { in_model=0 }
+    in_model {
+      line=$0
+      sub(/^[[:space:]]+/, "", line)
+      if (line ~ "^" field ":[[:space:]]*") {
+        sub("^" field ":[[:space:]]*", "", line)
+        gsub(/^["'\'']|["'\'']$/, "", line)
+        print line
+        exit
+      }
+    }
+  ' "$path"
+}
+
+workspace_model_value() {
+  local runtime_value="${HERMES_MODEL:-}" global_value
+  if [[ -n "$runtime_value" ]]; then
+    printf '%s\n' "$runtime_value"
+    return 0
+  fi
+  global_value="$(hermes_config_model_field default 2>/dev/null || true)"
+  [[ -n "$global_value" ]] && printf '%s\n' "$global_value" || printf 'gpt-5.5\n'
+}
+
+workspace_provider_value() {
+  local runtime_value="${HERMES_PROVIDER:-}" global_value
+  if [[ -n "$runtime_value" ]]; then
+    printf '%s\n' "$runtime_value"
+    return 0
+  fi
+  global_value="$(hermes_config_model_field provider 2>/dev/null || true)"
+  [[ -n "$global_value" ]] && printf '%s\n' "$global_value" || printf 'openai-codex\n'
+}
+
+workspace_model_source() {
+  if [[ -n "${HERMES_MODEL:-}" ]]; then
+    printf 'project\n'
+  elif [[ -n "$(hermes_config_model_field default 2>/dev/null || true)" ]]; then
+    printf 'hermes-config\n'
+  else
+    printf 'default\n'
+  fi
+}
+
+workspace_model_options_json() {
+  cat <<'EOF'
+[{"label":"GPT-5.5 (Codex)","provider":"openai-codex","model":"gpt-5.5"},{"label":"GPT-5.3 Codex","provider":"openai-codex","model":"gpt-5.3-codex"},{"label":"GPT-5.1","provider":"openrouter","model":"openai/gpt-5.1"},{"label":"Claude Sonnet 4.6","provider":"openrouter","model":"anthropic/claude-sonnet-4.6"},{"label":"Gemini 3 Pro","provider":"openrouter","model":"google/gemini-3-pro-preview"}]
+EOF
+}
+
+workspace_model_state_json() {
+  local model provider source
+  model="$(workspace_model_value)"
+  provider="$(workspace_provider_value)"
+  source="$(workspace_model_source)"
+  printf '{"provider":'; json_string "$provider"
+  printf ',"model":'; json_string "$model"
+  printf ',"source":'; json_string "$source"
+  printf ',"options":'
+  workspace_model_options_json | tr -d '\n'
+  printf '}'
+}
+
+orchestration_field() {
+  local file="$1" field="$2" default="${3:-}"
+  [[ -f "$file" ]] || { printf '%s' "$default"; return 0; }
+  python3 - "$file" "$field" "$default" <<'PY'
+import json, sys
+path, field, default = sys.argv[1:4]
+try:
+    data = json.load(open(path, encoding="utf-8"))
+    value = data
+    for part in field.split("."):
+        value = value[part]
+    if isinstance(value, bool):
+        print("true" if value else "false")
+    elif isinstance(value, (list, dict)):
+        print(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
+    else:
+        print(value)
+except Exception:
+    print(default)
+PY
+}
+
+write_orchestration_json() {
+  local root="$1" job_dir="$2" request="$3" provider model source
+  provider="$(workspace_provider_value)"
+  model="$(workspace_model_value)"
+  source="$(workspace_model_source)"
+  python3 - "$job_dir/ORCHESTRATION.json" "$job_dir" "$request" "$provider" "$model" "$source" <<'PY'
+import json, re, sys
+out, job_dir, request, provider, model, source = sys.argv[1:7]
+text = request.lower()
+
+def has(pattern: str) -> bool:
+    return re.search(pattern, text, re.I) is not None
+
+intent_rules = [
+    ("ui", r"\bui\b|frontend|react|tsx|css|layout|responsive|button|screen|visual|화면|레이아웃|반응형|버튼|디자인"),
+    ("ux", r"\bux\b|usability|user flow|사용성|사용자|흐름|경험"),
+    ("backend", r"backend|api|server|rust|tauri|bridge|cli|command|백엔드|브리지|명령"),
+    ("qa", r"\bqa\b|test|verify|검증|테스트|회귀|품질"),
+    ("docs", r"docs|readme|document|문서|작업지시|체크리스트|설계문서"),
+    ("security", r"security|auth|credential|secret|token|acl|permission|보안|권한|토큰|인증"),
+    ("devops", r"deploy|release|build|ci|cd|배포|릴리즈|빌드"),
+    ("architecture", r"architecture|migration|refactor|system design|설계|아키텍처|마이그레이션|리팩터"),
+    ("research", r"research|compare|evaluate|조사|리서치|비교|평가"),
+]
+intents = [name for name, pattern in intent_rules if has(pattern)]
+if not intents:
+    intents = ["general"]
+
+security = "security" in intents
+critical = security or has(r"production|destructive|delete|remove|filesystem|shell|install|dependency|운영|파괴|삭제|설치|의존성")
+code_change = has(r"implement|fix|change|update|build|add|remove|refactor|code|tsx|css|rust|tauri|cli|구현|수정|변경|추가|삭제|고쳐|만들|빌드")
+user_visible = "ui" in intents or "ux" in intents or has(r"user|screen|button|사용자|화면|버튼")
+explicit_team = has(r"team|tft|meeting|회의|토론|팀|조직")
+large = has(r"architecture|migration|multi|system|broad|대규모|전체|복잡|아키텍처|마이그레이션") or len(request) > 900
+medium = len(set(intents) - {"general"}) >= 2 or (code_change and user_visible) or has(r"tauri|bridge|cli|tests?|검증|테스트")
+
+if critical:
+    mode, complexity, risk, team_cap = "critical_review", "critical", "high", 5
+elif explicit_team and medium:
+    mode, complexity, risk, team_cap = "standard_team", "medium", "medium", 4
+elif large:
+    mode, complexity, risk, team_cap = "standard_team", "large", "medium", 5
+elif medium:
+    mode, complexity, risk, team_cap = "standard_team", "medium", "medium", 4
+elif code_change and not has(r"docs|readme|문서") and ("backend" in intents or "ui" in intents or "ux" in intents):
+    mode, complexity, risk, team_cap = "assisted_single_lane", "small", "low", 1
+else:
+    mode, complexity, risk, team_cap = "solo_direct", "small", "low", 1
+
+requires_qa = mode in {"standard_team", "critical_review"} and (code_change or user_visible or "qa" in intents)
+requires_security_review = critical and security
+approval_required = critical and has(r"production|destructive|delete|remove|filesystem|shell|install|dependency|model-global|운영|파괴|삭제|설치|의존성")
+max_tfts = 0 if mode in {"solo_direct", "assisted_single_lane"} else (2 if mode == "critical_review" else 1)
+max_meetings = 0 if mode in {"solo_direct", "assisted_single_lane"} else 1
+
+reason = {
+    "solo_direct": "Small or read-only work; team coordination would cost more than it adds.",
+    "assisted_single_lane": "Focused implementation lane; at most one specialist is useful.",
+    "standard_team": "Multiple capabilities or verification lanes are likely needed.",
+    "critical_review": "High-risk security/permissions/runtime/deployment signal requires review gates.",
+}[mode]
+
+data = {
+    "schema_version": "agentdock.orchestration.v1",
+    "job_id": job_dir.rstrip("/").split("/")[-1],
+    "mode": mode,
+    "complexity": complexity,
+    "risk": risk,
+    "intents": intents,
+    "requires_code_change": bool(code_change),
+    "requires_user_visible_change": bool(user_visible),
+    "requires_qa": bool(requires_qa),
+    "requires_security_review": bool(requires_security_review),
+    "approval_required": bool(approval_required),
+    "team_cap": team_cap,
+    "reason": reason,
+    "budget": {
+        "max_roles": team_cap,
+        "max_tfts": max_tfts,
+        "max_meetings": max_meetings,
+        "expected_minutes": 10 if mode == "solo_direct" else 30 if mode == "assisted_single_lane" else 90,
+        "escalation_requires_reason": True,
+    },
+    "runtime": {
+        "provider": provider,
+        "model": model,
+        "source": source,
+    },
+    "selected_roles": [],
+    "selected_role_details": [],
+    "rejected_roles": [{"template": "agency-bulk-import", "reason": "Bulk importing agency roles violates the smallest-useful-team policy."}],
+}
+if mode == "solo_direct":
+    data["rejected_roles"].append({"template": "agency-specialist-team", "reason": "Coordination overhead exceeds the expected value for this small job."})
+with open(out, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, ensure_ascii=False, indent=2)
+    fh.write("\n")
+PY
+}
+
+workspace_orchestration_json() {
+  local job_dir="$1" file="$job_dir/ORCHESTRATION.json"
+  if [[ -f "$file" ]]; then
+    python3 - "$file" <<'PY'
+import json, sys
+try:
+    data = json.load(open(sys.argv[1], encoding="utf-8"))
+    print(json.dumps(data, ensure_ascii=False, separators=(",", ":")))
+except Exception:
+    print('{"schema_version":"agentdock.orchestration.v1","mode":"legacy_controlled_actions","complexity":"unknown","risk":"unknown","reason":"Existing job has an unreadable ORCHESTRATION.json.","requires_qa":false,"team_cap":0}')
+PY
+  else
+    printf '{"schema_version":"agentdock.orchestration.v1","mode":"legacy_controlled_actions","complexity":"unknown","risk":"unknown","reason":"Existing job was created before adaptive orchestration artifacts.","requires_qa":false,"team_cap":0}'
+  fi
+}
+
+job_requires_qa() {
+  [[ "$(orchestration_field "$1/ORCHESTRATION.json" requires_qa false)" == "true" ]]
+}
+
+job_qa_status() {
+  local job_dir="$1" status
+  status="$(sed -n 's/^Status:[[:space:]]*//p' "$job_dir/QA.md" 2>/dev/null | head -1)"
+  [[ -n "$status" ]] && printf '%s' "$status" || { job_requires_qa "$job_dir" && printf 'pending' || printf 'not_required'; }
+}
+
+job_qa_blocker() {
+  local job_dir="$1" status
+  job_requires_qa "$job_dir" || return 0
+  status="$(job_qa_status "$job_dir")"
+  [[ "$status" == "passed" ]] && return 0
+  printf 'QA gate is required but not passed (status: %s).' "$status"
+}
+
+job_tft_blocker() {
+  local job_dir="$1" tft_file status blocking name
+  [[ -d "$job_dir/TFTS" ]] || return 0
+  while IFS= read -r tft_file; do
+    [[ -n "$tft_file" ]] || continue
+    status="$(sed -n 's/^Status:[[:space:]]*//p' "$tft_file" 2>/dev/null | head -1)"
+    blocking="$(sed -n 's/^Blocking:[[:space:]]*//p' "$tft_file" 2>/dev/null | head -1)"
+    if [[ "$status" == "active" && "$blocking" == "true" ]]; then
+      name="$(sed -n 's/^# TFT:[[:space:]]*//p' "$tft_file" 2>/dev/null | head -1)"
+      [[ -n "$name" ]] || name="$(basename "$tft_file" .md)"
+      printf 'Blocking TFT is still active: %s (%s).' "$name" "$tft_file"
+      return 0
+    fi
+  done < <(find "$job_dir/TFTS" -maxdepth 1 -type f -name '*.md' 2>/dev/null | sort)
+  return 0
+}
+
+select_job_worker_roles() {
+  local root="$1" coordinator="$2" orchestration_file="$3" mode cap requires_qa requires_security intents id selected="" count=0
+  source_runtime "$root"
+  mode="$(orchestration_field "$orchestration_file" mode solo_direct)"
+  cap="$(orchestration_field "$orchestration_file" team_cap 0)"
+  requires_qa="$(orchestration_field "$orchestration_file" requires_qa false)"
+  requires_security="$(orchestration_field "$orchestration_file" requires_security_review false)"
+  intents="$(orchestration_field "$orchestration_file" intents '[]')"
+  [[ "$cap" =~ ^[0-9]+$ ]] || cap=0
+  [[ "$mode" == "solo_direct" || "$cap" -le 0 ]] && return 0
+  for id in $AGENT_IDS; do
+    [[ "$id" == "$coordinator" ]] && continue
+    case " $selected " in *" $id "*) continue ;; esac
+    local pick=false
+    if [[ "$requires_security" == "true" && ( "$id" == *security* || "$id" == *review* || "$id" == *architect* || "$id" == *cto* ) ]]; then pick=true; fi
+    if [[ "$requires_qa" == "true" && ( "$id" == *qa* || "$id" == *test* || "$id" == *review* || "$id" == *quality* ) ]]; then pick=true; fi
+    if printf '%s' "$intents" | grep -Eiq 'ui|ux'; then
+      [[ "$id" == *ui* || "$id" == *ux* || "$id" == *design* || "$id" == *frontend* || "$id" == *developer* || "$id" == *engineer* ]] && pick=true
+    fi
+    if printf '%s' "$intents" | grep -Eiq 'backend|devops|architecture'; then
+      [[ "$id" == *developer* || "$id" == *engineer* || "$id" == *architect* || "$id" == *cto* || "$id" == *devops* ]] && pick=true
+    fi
+    if printf '%s' "$intents" | grep -Eiq 'docs'; then
+      [[ "$id" == *writer* || "$id" == *doc* || "$id" == *review* ]] && pick=true
+    fi
+    if [[ "$mode" == "assisted_single_lane" && "$pick" == false ]]; then
+      [[ "$id" == *developer* || "$id" == *engineer* || "$id" == *review* ]] && pick=true
+    fi
+    [[ "$pick" == true ]] || continue
+    selected="$selected $id"
+    printf '%s\n' "$id"
+    count=$((count + 1))
+    (( count >= cap )) && break
+    [[ "$mode" == "assisted_single_lane" ]] && break
+  done
+  return 0
+}
+
+update_orchestration_selected_roles() {
+  local file="$1" coordinator="$2" workers="$3"
+  [[ -f "$file" ]] || return 0
+  python3 - "$file" "$coordinator" "$workers" <<'PY'
+import json, sys
+path, coordinator, workers = sys.argv[1:4]
+try:
+    data = json.load(open(path, encoding="utf-8"))
+except Exception:
+    raise SystemExit(0)
+roles = [coordinator] + [r for r in workers.split() if r]
+data["selected_roles"] = roles
+data["selected_role_details"] = [{
+    "role": coordinator,
+    "source": "reuse",
+    "template": "configured CEO/orchestrator",
+    "mission": "Coordinate the job and keep orchestration artifacts current.",
+    "distinct_output": "final report and coordination decisions",
+}]
+for role in roles[1:]:
+    data["selected_role_details"].append({
+        "role": role,
+        "source": "reuse",
+        "template": "configured role",
+        "mission": "Execute the selected capability lane and report completion evidence.",
+        "distinct_output": "role report with files changed, tests run, blockers, and handoff needs",
+    })
+with open(path, "w", encoding="utf-8") as fh:
+    json.dump(data, fh, ensure_ascii=False, indent=2)
+    fh.write("\n")
+PY
+}
+
+write_dependencies_template() {
+  local job_dir="$1"
+  cat > "$job_dir/DEPENDENCIES.json" <<EOF
+{
+  "schema_version": "agentdock.dependencies.v1",
+  "items": []
+}
+EOF
+}
+
+workspace_dependencies_json() {
+  local job_dir="$1"
+  python3 - "$job_dir" <<'PY'
+import json, re, sys
+from pathlib import Path
+job = Path(sys.argv[1])
+items = []
+path = job / "DEPENDENCIES.json"
+if path.exists():
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        for item in data.get("items", []):
+            if isinstance(item, dict):
+                items.append(item)
+    except Exception:
+        pass
+for report in sorted((job / "REPORTS").glob("*.md")) if (job / "REPORTS").exists() else []:
+    if report.name.endswith("-final.md"):
+        continue
+    role = report.stem.split("-", 1)[-1]
+    text = report.read_text(encoding="utf-8", errors="ignore")
+    for pattern in [r"(?i)(?:waiting on|depends on|blocked by)\s+([a-z0-9_.-]+)", r"(?:대기|의존|막힘)[:\s]+([a-z0-9_.-]+)"]:
+        for match in re.finditer(pattern, text):
+            target = re.sub(r"[^a-zA-Z0-9_.-]", "", match.group(1).lower())
+            if target and target != role:
+                items.append({"role": role, "waiting_on": target, "type": "report_hint", "status": "open", "source_path": str(report), "reason": match.group(0)[:180]})
+seen=[]; dedup=[]
+for item in items:
+    key=(item.get("role"), item.get("waiting_on"), item.get("source_path"), item.get("reason"))
+    if key in seen: continue
+    seen.append(key); dedup.append(item)
+print(json.dumps({"schema_version":"agentdock.dependencies.v1","items":dedup}, ensure_ascii=False, separators=(",",":")))
+PY
+}
+
+workspace_meetings_json() {
+  local job_dir="$1"
+  python3 - "$job_dir" <<'PY'
+import json, re, sys
+from pathlib import Path
+job = Path(sys.argv[1])
+items=[]
+for path in sorted((job / "MEETINGS").glob("*.md")) if (job / "MEETINGS").exists() else []:
+    text=path.read_text(encoding="utf-8", errors="ignore")
+    def field(name):
+        m=re.search(rf"^{re.escape(name)}:\s*(.*)$", text, re.M)
+        return m.group(1).strip() if m else ""
+    title=""
+    m=re.search(r"^# Meeting:\s*(.*)$", text, re.M)
+    if m: title=m.group(1).strip()
+    decision=""
+    matches=re.findall(r"^## Decision\s*\n(.*?)(?:\n## |\Z)", text, re.S|re.M)
+    if matches:
+        decision=" ".join(line.strip("- ") for line in matches[-1].splitlines() if line.strip())[:500]
+    items.append({"title": title or path.stem, "status": field("Status") or "unknown", "reason": field("Reason"), "decision": decision, "source_path": str(path)})
+print(json.dumps({"schema_version":"agentdock.meetings.v1","items":items}, ensure_ascii=False, separators=(",",":")))
+PY
+}
+
+update_job_qa_from_report() {
+  local job_dir="$1" from="$2" summary="$3" report_file="$4" stamp status tmp
+  job_requires_qa "$job_dir" || return 0
+  case "$from" in
+    *qa*|*test*|*review*|*security*) ;;
+    *) return 0 ;;
+  esac
+  if printf '%s\n' "$summary" | grep -Eiq 'fail|failed|failure|blocker|blocked|불합격|실패|막힘'; then
+    status="failed"
+  else
+    status="passed"
+  fi
+  stamp="$(report_timestamp)"
+  [[ -f "$job_dir/QA.md" ]] || cat > "$job_dir/QA.md" <<EOF
+# QA Gate
+
+Status: pending
+Required: true
+Reason: QA gate was reconstructed from ORCHESTRATION.json.
+
+## Evidence
+EOF
+  tmp="$job_dir/QA.md.tmp"
+  awk -v status="$status" 'BEGIN{done=0} /^Status:/ && done==0 { print "Status: " status; done=1; next } { print } END{ if(done==0) print "Status: " status }' "$job_dir/QA.md" > "$tmp"
+  mv "$tmp" "$job_dir/QA.md"
+  {
+    printf '\n- %s %s: %s\n' "$stamp" "$status" "$report_file"
+    printf '  Summary: %s\n' "$(truncate_text "$summary" 500)"
+  } >> "$job_dir/QA.md"
+}
+
+append_job_action_audit() {
+  local job_dir="$1" actor="$2" action="$3" summary="$4" status="${5:-ok}" stamp
+  [[ -d "$job_dir" ]] || return 0
+  stamp="$(report_timestamp)"
+  {
+    [[ -f "$job_dir/ACTIONS.md" ]] || printf '# Action Audit\n\n| Time | Actor | Action | Status | Summary |\n|---|---|---|---|---|\n'
+    printf '| %s | %s | %s | %s | %s |\n' "$stamp" "$actor" "$action" "$status" "$(printf '%s' "$summary" | tr '\n|' '  ' | cut -c1-240)"
+  } >> "$job_dir/ACTIONS.md"
+}
+
+workspace_write_conflicts_json() {
+  local job_dir="$1"
+  python3 - "$job_dir" <<'PY'
+import json, re, sys
+from pathlib import Path
+job=Path(sys.argv[1])
+owners={}
+for task in sorted((job/'TASKS').glob('*.md')) if (job/'TASKS').exists() else []:
+    role=task.stem
+    text=task.read_text(encoding='utf-8', errors='ignore')
+    for section in re.findall(r"^## Shared files\s*\n(.*?)(?:\n## |\Z)", text, re.S|re.M):
+        for line in section.splitlines():
+            line=line.strip().lstrip('-').strip()
+            if not line or line.lower().startswith('unknown') or line.lower() in {'none','n/a'}: continue
+            owners.setdefault(line, []).append(role)
+items=[{"file": f, "roles": roles, "status": "conflict"} for f, roles in owners.items() if len(set(roles))>1]
+print(json.dumps({"schema_version":"agentdock.write_conflicts.v1","items":items}, ensure_ascii=False, separators=(",",":")))
+PY
+}
+
+workspace_communications_json() {
+  local job_dir="$1"
+  python3 - "$job_dir" <<'PY'
+import json, sys
+from pathlib import Path
+job=Path(sys.argv[1])
+items=[]
+actions=job/'ACTIONS.md'
+if actions.exists():
+    for line in actions.read_text(encoding='utf-8', errors='ignore').splitlines():
+        if not line.startswith('| ') or line.startswith('| Time') or line.startswith('|---'):
+            continue
+        parts=[p.strip() for p in line.strip('|').split('|')]
+        if len(parts)>=5:
+            items.append({"time":parts[0],"actor":parts[1],"action":parts[2],"status":parts[3],"summary":parts[4],"source_path":str(actions)})
+print(json.dumps({"schema_version":"agentdock.communications.v1","items":items[-12:]}, ensure_ascii=False, separators=(",",":")))
+PY
 }
 
 set_role_runtime() {
@@ -1252,6 +1742,8 @@ write_runtime() {
   local root="$1" project_name="$2" session="$3" layout="$4" agent_ids="$5"
   local file="$root/.agentdock/config.runtime"
   agent_ids="$(normalize_agent_ids "$agent_ids")"
+  validate_hermes_model_value "${HERMES_MODEL:-gpt-5.5}"
+  validate_hermes_provider_value "${HERMES_PROVIDER:-}"
   local id var
   {
     write_config_line PROJECT_NAME "$project_name"
@@ -1262,6 +1754,8 @@ write_runtime() {
     write_config_line USE_WORKTREES "0"
     write_config_line WORK_DIR ".agent-work"
     write_config_line AGENT_IDS "$agent_ids"
+    write_config_line HERMES_MODEL "${HERMES_MODEL:-}"
+    write_config_line HERMES_PROVIDER "${HERMES_PROVIDER:-}"
     for id in $agent_ids; do
       var="AGENT_${id//-/_}"
       local display cli window
@@ -2264,12 +2758,28 @@ cmd_job_start() {
   local session_was_running=0
   tmux has-session -t "$SESSION_NAME" 2>/dev/null && session_was_running=1
 
-  local ts job role stamp msg task_file
+  local ts job role stamp msg task_file orchestration_file orchestration_mode orchestration_reason orchestration_team_cap orchestration_requires_qa rec_limit selected_workers worker worker_task_file worker_mission
   ts="$(timestamp)"
   stamp="$(report_timestamp)"
   role="$(orchestrator_role "$root")"
   job="$root/.agent-work/07_JOBS/JOB-$ts"
-  mkdir -p "$job/TASKS" "$job/LOGS" "$job/REPORTS" "$job/HANDOFFS" "$job/OUTPUTS"
+  mkdir -p "$job/TASKS" "$job/LOGS" "$job/REPORTS" "$job/HANDOFFS" "$job/OUTPUTS" "$job/TFTS" "$job/MEETINGS" "$job/DECISIONS"
+  write_orchestration_json "$root" "$job" "$text"
+  orchestration_file="$job/ORCHESTRATION.json"
+  orchestration_mode="$(orchestration_field "$orchestration_file" mode legacy_controlled_actions)"
+  orchestration_reason="$(orchestration_field "$orchestration_file" reason "")"
+  orchestration_team_cap="$(orchestration_field "$orchestration_file" team_cap 1)"
+  orchestration_requires_qa="$(orchestration_field "$orchestration_file" requires_qa false)"
+  case "$orchestration_mode" in
+    solo_direct) rec_limit=0 ;;
+    assisted_single_lane) rec_limit=1 ;;
+    *) rec_limit="$orchestration_team_cap" ;;
+  esac
+  [[ "$rec_limit" =~ ^[0-9]+$ ]] || rec_limit=1
+  (( rec_limit > 6 )) && rec_limit=6
+  selected_workers="$(select_job_worker_roles "$root" "$role" "$orchestration_file" | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+  update_orchestration_selected_roles "$orchestration_file" "$role" "$selected_workers"
+  write_dependencies_template "$job"
   cat > "$job/README.md" <<EOF
 # JOB-$ts
 
@@ -2288,6 +2798,12 @@ planning
 ## Assigned CEO/orchestrator
 $role
 
+## Adaptive orchestration
+Mode: $orchestration_mode
+Reason: $orchestration_reason
+Team cap: $orchestration_team_cap
+QA required: $orchestration_requires_qa
+
 ## Required CEO-led flow
 1. Read the request and inspect the existing configured/running team in \`TEAM.md\` and \`agentdock team\`.
 2. Choose the smallest useful team for this job. Reuse existing running/configured roles when their capability fits.
@@ -2304,9 +2820,22 @@ EOF
 
 ## Selected roles
 
-| Role name | Template | Mission | Status |
-|---|---|---|---|
-| $role | configured CEO/orchestrator | Intake the job, select and recruit the team, assign task cards, verify reports, and submit the final report. | coordinating |
+| Role name | Template | Source | Mission | Status |
+|---|---|---|---|---|
+| $role | configured CEO/orchestrator | reuse | Intake the job, select and recruit the team, assign task cards, verify reports, and submit the final report. | coordinating |
+EOF
+  for worker in $selected_workers; do
+    worker_mission="$(role_task_mission "$worker")"
+    printf '| %s | configured role | reuse | %s | assigned |\n' "$worker" "$worker_mission" >> "$job/TEAM.md"
+  done
+  cat >> "$job/TEAM.md" <<EOF
+
+## Adaptive orchestration
+- Mode: $orchestration_mode
+- Reason: $orchestration_reason
+- Team cap: $orchestration_team_cap
+- QA required: $orchestration_requires_qa
+- Simple jobs must stay lightweight; recruit only when a blocker or clearly missing capability appears.
 
 ## CEO instructions
 - Add rows for every recruited role.
@@ -2316,20 +2845,34 @@ EOF
 - Review the recommended curated agency specialists below before recruiting; use agency-* only for sharply specialized missing capabilities, never as a bulk import.
 EOF
   {
+    printf '\n## Rejected role suggestions\n\n'
+    printf '| Candidate | Reason |\n|---|---|\n'
+    printf '| agency-bulk-import | Bulk importing agency roles violates the smallest-useful-team policy. |\n'
+    if [[ "$orchestration_mode" == "solo_direct" ]]; then
+      printf '| agency-specialist-team | Coordination overhead exceeds expected value for this small job. |\n'
+    fi
+  } >> "$job/TEAM.md"
+  {
     printf '\n## Recommended curated agency specialists\n\n'
     printf 'AgentDock recommendation source: local curated registry only; no remote agency-agents code is executed.\n\n'
     printf '| Template | Role | Department | Score | Why |\n'
     printf '|---|---|---|---:|---|\n'
     local rec_template rec_display rec_department rec_archetype rec_score rec_reason rec_count=0
-    while IFS=$'\t' read -r rec_template rec_display rec_department rec_archetype rec_score rec_reason; do
-      [[ -n "$rec_template" ]] || continue
-      rec_count=$((rec_count + 1))
-      printf '| %s | %s | %s | %s | %s |\n' "$rec_template" "$rec_display" "$rec_department" "$rec_score" "$rec_reason"
-    done < <(agency_recommend_templates "$root" "$text" 6 text)
-    if [[ "$rec_count" -eq 0 ]]; then
-      printf '| - | No agency specialist recommendation for this request. | - | 0 | Reuse configured/BMAD roles first. |\n'
+    if [[ "$rec_limit" -gt 0 ]]; then
+      while IFS=$'\t' read -r rec_template rec_display rec_department rec_archetype rec_score rec_reason; do
+        [[ -n "$rec_template" ]] || continue
+        rec_count=$((rec_count + 1))
+        printf '| %s | %s | %s | %s | %s |\n' "$rec_template" "$rec_display" "$rec_department" "$rec_score" "$rec_reason"
+      done < <(agency_recommend_templates "$root" "$text" "$rec_limit" text)
     fi
-    printf '\nRecruit only if missing from the current team, for example:\n'
+    if [[ "$rec_count" -eq 0 ]]; then
+      if [[ "$orchestration_mode" == "solo_direct" ]]; then
+        printf '| - | No specialist recommendation. | - | 0 | This is classified as a lightweight job; keep it with the coordinator unless a concrete blocker appears. |\n'
+      else
+        printf '| - | No agency specialist recommendation for this request. | - | 0 | Reuse configured/BMAD roles first. |\n'
+      fi
+    fi
+    printf '\nRecruit only if missing from the current team and justified by the orchestration mode, for example:\n'
     printf '\n```bash\n'
     printf 'agentdock recruit <role-name> --template <template-id> --mission "..." --instructions "..."\n'
     printf '```\n'
@@ -2352,6 +2895,38 @@ Status: planning
 - $stamp planning: job created by $from for $role
 EOF
 
+  cat > "$job/HANDOFFS/README.md" <<EOF
+# Handoff Template
+
+Use one markdown file per role-to-role handoff when work cannot be completed by the current owner alone.
+
+Required fields:
+- From
+- To
+- Context
+- Completed work
+- Remaining work
+- Blockers/dependencies
+- Verification evidence
+- Requested next action
+EOF
+
+  if [[ "$orchestration_requires_qa" == "true" ]]; then
+    cat > "$job/QA.md" <<EOF
+# QA Gate
+
+Status: pending
+Required: true
+Reason: $orchestration_reason
+
+## Rule
+The job cannot be finished until a QA/review role submits a passing report with \`agentdock job report --from <qa-role> --summary "..."\`.
+
+## Evidence
+- Pending QA evidence.
+EOF
+  fi
+
   task_file="$job/TASKS/$role.md"
   cat > "$task_file" <<EOF
 # Task: $role
@@ -2367,6 +2942,21 @@ $(format_untrusted_text "$text")
 
 ## Mission
 Design the smallest useful AgentDock team, reuse suitable existing configured/running roles, recruit only missing roles with \`agentdock recruit\`, assign concrete task cards, monitor execution, verify role reports, and submit the final report.
+
+## Orchestration
+- Mode: $orchestration_mode
+- Reason: $orchestration_reason
+- Team cap: $orchestration_team_cap
+- QA required: $orchestration_requires_qa
+- ORCHESTRATION: $job/ORCHESTRATION.json
+
+## Write scope
+- Work only inside the project and job artifacts required by this request.
+- Keep specialist recruitment within the team cap unless a concrete blocker is documented.
+
+## Dependencies
+- QA gate: $([[ "$orchestration_requires_qa" == "true" ]] && printf "$job/QA.md" || printf "not required")
+- TFT budget: $(orchestration_field "$orchestration_file" budget.max_tfts 0)
 
 ## Required actions
 - Inspect existing configured/running roles in \`$job/TEAM.md\` and with \`agentdock team\`.
@@ -2389,14 +2979,65 @@ Design the smallest useful AgentDock team, reuse suitable existing configured/ru
 - Final report is submitted with a \`YYMMDDHH:MM:SS-final.md\` filename before completed/reported running worker panes are disbanded.
 EOF
 
+  for worker in $selected_workers; do
+    worker_mission="$(role_task_mission "$worker")"
+    worker_task_file="$job/TASKS/$worker.md"
+    cat > "$worker_task_file" <<EOF
+# Task: $worker
+
+Owner: $worker
+Status: assigned
+Source: reuse
+
+## Job
+$job/README.md
+
+## User request (untrusted)
+$(format_untrusted_text "$text")
+
+## Mission
+$worker_mission
+
+## Inputs
+- Job README: $job/README.md
+- Team plan: $job/TEAM.md
+- Orchestration: $job/ORCHESTRATION.json
+- Dependencies: $job/DEPENDENCIES.json
+- Shared context: $root/.agent-work/14_SHARED_CONTEXT/PROJECT_CONTEXT.md
+
+## Write scope
+- Work only on files required for this role's mission.
+- Coordinate with CEO before editing shared files.
+
+## Shared files
+- Unknown until CEO narrows implementation files.
+
+## Dependencies
+- Review $job/DEPENDENCIES.json before starting.
+- If blocked by another role, report with “blocked by <role>” or create/request a TFT.
+
+## Acceptance criteria
+- Report concrete status, changed files, tests/verification, blockers, and handoff needs.
+- Do not edit unrelated files.
+- Submit completion evidence through the job report command below.
+
+## Output
+agentdock job report --from $worker --summary "<completed work, files changed, tests run, blockers, handoff needs>"
+EOF
+  done
+
   printf 'Active job: %s\n' "$job/README.md" > "$root/.agent-work/07_JOBS/CURRENT.md"
-  msg="Active AgentDock job created: $job/README.md. Do not stop at READY and do not wait for another user command. You are the CEO/orchestrator: read $task_file, choose the needed team from templates, recruit missing roles with agentdock recruit, assign task cards, require timestamped role reports, and start execution now. Finish with agentdock job finish after selected role reports are reviewed; it refuses missing selected-role reports, writes the final report, and disbands completed/reported running worker panes only."
+  append_job_action_audit "$job" "$from" "job_start" "Created $orchestration_mode job with team cap $orchestration_team_cap" "ok"
+  msg="Active AgentDock job created: $job/README.md. Adaptive mode: $orchestration_mode (team cap $orchestration_team_cap; QA required $orchestration_requires_qa). Do not stop at READY and do not wait for another user command. You are the CEO/orchestrator: read $task_file and ORCHESTRATION.json, choose the smallest useful team, recruit missing roles only when justified, assign task cards, require timestamped role reports, and start execution now. Finish with agentdock job finish after selected role reports and QA gates are reviewed; it refuses missing selected-role reports, writes the final report, and disbands completed/reported running worker panes only."
   if [[ "$session_was_running" == 1 ]]; then
     cmd_send "$role" "$msg" --project "$root" || true
   else
     cmd_start --bootstrap-only --no-attach --project "$root"
     cmd_send "$role" "$msg" --project "$root" || true
   fi
+  for worker in $selected_workers; do
+    cmd_send "$worker" "New AgentDock job task: $job/TASKS/$worker.md. Execute your lane, coordinate blockers through reports/TFTs, and submit with agentdock job report --from $worker --summary \"...\"." --project "$root" || true
+  done
   cmd_broadcast --from "$role" --selected --job "$job" --quiet "Job kickoff: $job/README.md. CEO/orchestrator is selecting the team. Watch TEAM.md, TASKS/, and BROADCASTS.md for assignments and decisions." --project "$root" || true
   say "Created CEO-led job: $job"
   if [[ "$session_was_running" == 1 ]]; then
@@ -2455,6 +3096,8 @@ cmd_job_report() {
   if [[ -f "$job_dir/LIFECYCLE.md" ]]; then
     printf -- '- %s report: %s submitted report to %s: %s\n' "$stamp" "$from" "$ceo" "$report_file" >> "$job_dir/LIFECYCLE.md"
   fi
+  update_job_qa_from_report "$job_dir" "$from" "$summary" "$report_file"
+  append_job_action_audit "$job_dir" "$from" "job_report" "$summary" "ok"
   msg="$from submitted a role report for the active AgentDock job: $report_file. Review it and include it when you run agentdock job finish."
   cmd_send "$ceo" "$msg" --project "$root" || true
   cmd_broadcast --from "$from" --selected --job "$job_dir" --quiet "Role report submitted by $from: $report_file. Summary: $(truncate_text "$summary" "${AGENTDOCK_REPORT_BROADCAST_LIMIT:-800}")" --project "$root" || true
@@ -2477,7 +3120,7 @@ cmd_job_finish() {
     esac
   done
   [[ -n "$file" ]] && summary="$(cat "$file")"
-  local job_dir stamp role report_file submitted_file tmp teardown_summary missing_reports
+  local job_dir stamp role report_file submitted_file tmp teardown_summary missing_reports qa_blocker tft_blocker
   if [[ -n "$job_arg" ]]; then
     job_dir="$job_arg"
     [[ "$job_dir" == /* ]] || job_dir="$root/${job_dir#./}"
@@ -2487,6 +3130,14 @@ cmd_job_finish() {
   [[ -d "$job_dir" ]] || die "job directory not found: $job_dir"
   source_runtime "$root"
   role="$(orchestrator_role "$root")"
+  qa_blocker="$(job_qa_blocker "$job_dir" || true)"
+  if [[ -n "$qa_blocker" ]]; then
+    die "cannot finish job; $qa_blocker Ask QA/review role to submit: agentdock job report --from <qa-role> --summary \"...\""
+  fi
+  tft_blocker="$(job_tft_blocker "$job_dir" || true)"
+  if [[ -n "$tft_blocker" ]]; then
+    die "cannot finish job; $tft_blocker Close the TFT first: agentdock job tft close --name <name> --summary \"...\""
+  fi
   missing_reports="$(missing_selected_role_reports "$job_dir" "$role" || true)"
   if [[ -n "$missing_reports" ]]; then
     die "cannot finish job; selected role task card(s) have no job report: $(printf '%s' "$missing_reports" | tr '\n' ' '). Ask those roles to run: agentdock job report --from <role> --summary \"...\""
@@ -2505,6 +3156,42 @@ cmd_job_finish() {
       printf '%s\n\n' "$summary"
     else
       printf 'No summary text was provided. Review the team plan, task cards, and role reports below.\n\n'
+    fi
+    if [[ -f "$job_dir/ORCHESTRATION.json" ]]; then
+      printf '## Orchestration\n\n'
+      sed -n '1,160p' "$job_dir/ORCHESTRATION.json"
+      printf '\n'
+    fi
+    if [[ -f "$job_dir/QA.md" ]]; then
+      printf '## QA Gate\n\n'
+      sed -n '1,160p' "$job_dir/QA.md"
+      printf '\n'
+    fi
+    if [[ -f "$job_dir/DEPENDENCIES.json" ]]; then
+      printf '## Dependencies\n\n'
+      sed -n '1,160p' "$job_dir/DEPENDENCIES.json"
+      printf '\n'
+    fi
+    if [[ -d "$job_dir/TFTS" ]]; then
+      printf '## TFTs\n\n'
+      find "$job_dir/TFTS" -maxdepth 1 -type f -name '*.md' 2>/dev/null | sort | while IFS= read -r tft; do
+        printf '### %s\n\n' "$(basename "$tft")"
+        sed -n '1,120p' "$tft"
+        printf '\n'
+      done
+    fi
+    if [[ -d "$job_dir/MEETINGS" ]]; then
+      printf '## Meetings and Decisions\n\n'
+      find "$job_dir/MEETINGS" -maxdepth 1 -type f -name '*.md' 2>/dev/null | sort | while IFS= read -r meeting; do
+        printf '### %s\n\n' "$(basename "$meeting")"
+        sed -n '1,120p' "$meeting"
+        printf '\n'
+      done
+    fi
+    if [[ -f "$job_dir/ACTIONS.md" ]]; then
+      printf '## Action Audit\n\n'
+      sed -n '1,160p' "$job_dir/ACTIONS.md"
+      printf '\n'
     fi
     if [[ -f "$job_dir/TEAM.md" ]]; then
       printf '## Team\n\n'
@@ -2561,13 +3248,258 @@ cmd_job_finish() {
   fi
 }
 
+cmd_job_tft() {
+  local root action="${1:-}" name="" members="" goal="" exit_condition="" summary="" file="" blocking=false job_dir stamp tft_id tft_file tmp
+  root="$(require_project "$@")"
+  [[ -n "$action" ]] || die "usage: agentdock job tft create|close --name <name> ..."
+  shift || true
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --name) name="${2:-}"; shift 2 ;;
+      --members) members="${2:-}"; shift 2 ;;
+      --goal) goal="${2:-}"; shift 2 ;;
+      --exit-condition) exit_condition="${2:-}"; shift 2 ;;
+      --summary) summary="${2:-}"; shift 2 ;;
+      --file) file="${2:-}"; shift 2 ;;
+      --blocking) blocking=true; shift ;;
+      --project) shift 2 ;;
+      --project=*) shift ;;
+      *)
+        if [[ -z "$name" ]]; then name="$1"; else summary="${summary:+$summary }$1"; fi
+        shift
+        ;;
+    esac
+  done
+  [[ -n "$file" ]] && summary="$(cat "$file")"
+  job_dir="$(current_job_dir "$root")" || die "no active job. Run: agentdock job \"...\""
+  [[ -d "$job_dir" ]] || die "job directory not found: $job_dir"
+  mkdir -p "$job_dir/TFTS" "$job_dir/MEETINGS" "$job_dir/DECISIONS"
+  stamp="$(report_timestamp)"
+  case "$action" in
+    create|open|start)
+      [[ -n "$name" ]] || die "TFT name required"
+      [[ -n "$goal" ]] || die "TFT goal required"
+      [[ -n "$members" ]] || die "TFT members required"
+      local max_tfts current_tfts
+      max_tfts="$(orchestration_field "$job_dir/ORCHESTRATION.json" budget.max_tfts 0)"
+      [[ "$max_tfts" =~ ^[0-9]+$ ]] || max_tfts=0
+      current_tfts="$(find "$job_dir/TFTS" -maxdepth 1 -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
+      if (( current_tfts >= max_tfts )); then
+        die "cannot create TFT; orchestration cap is $max_tfts. Record a blocker or update ORCHESTRATION.json with a higher cap and reason."
+      fi
+      tft_id="$(sanitize_id "$name")"
+      [[ -n "$tft_id" ]] || tft_id="tft"
+      tft_file="$job_dir/TFTS/tft-$tft_id.md"
+      cat > "$tft_file" <<EOF
+# TFT: $name
+
+Status: active
+Created: $stamp
+Blocking: $blocking
+Goal: $goal
+Exit condition: ${exit_condition:-Document a decision, remove the blocker, or hand work back to the owning role.}
+
+## Members
+$(printf '%s' "$members" | tr ',' '\n' | sed 's/^[[:space:]]*/- /; s/[[:space:]]*$//')
+
+## Decision log
+- $stamp opened by agentdock job tft create.
+EOF
+      if [[ -f "$job_dir/LIFECYCLE.md" ]]; then
+        printf -- '- %s tft: opened %s (%s)\n' "$stamp" "$name" "$tft_file" >> "$job_dir/LIFECYCLE.md"
+      fi
+      append_job_action_audit "$job_dir" "ceo" "tft_create" "$name: $goal" "ok"
+      say "TFT opened: $tft_file"
+      ;;
+    close|finish|complete)
+      [[ -n "$name" || -n "$file" ]] || die "TFT name or --file required"
+      if [[ -n "$file" ]]; then
+        tft_file="$file"
+        [[ "$tft_file" == /* ]] || tft_file="$root/${tft_file#./}"
+      else
+        tft_id="$(sanitize_id "$name")"
+        tft_file="$job_dir/TFTS/tft-$tft_id.md"
+      fi
+      [[ -f "$tft_file" ]] || die "TFT file not found: $tft_file"
+      tmp="$tft_file.tmp"
+      awk 'BEGIN{done=0} /^Status:/ && done==0 { print "Status: closed"; done=1; next } { print } END{ if(done==0) print "Status: closed" }' "$tft_file" > "$tmp"
+      mv "$tmp" "$tft_file"
+      {
+        printf '\n- %s closed.\n' "$stamp"
+        [[ -n "$summary" ]] && printf '  Summary: %s\n' "$summary"
+      } >> "$tft_file"
+      if [[ -f "$job_dir/LIFECYCLE.md" ]]; then
+        printf -- '- %s tft: closed %s (%s)\n' "$stamp" "${name:-$(basename "$tft_file")}" "$tft_file" >> "$job_dir/LIFECYCLE.md"
+      fi
+      append_job_action_audit "$job_dir" "ceo" "tft_close" "${name:-$(basename "$tft_file")}: $summary" "ok"
+      say "TFT closed: $tft_file"
+      ;;
+    *) die "usage: agentdock job tft create|close --name <name> ..." ;;
+  esac
+}
+
+cmd_job_meeting() {
+  local root action="${1:-}" title="" reason="" proposals="" decision="" rejected="" actions="" file="" job_dir meeting_id meeting_file stamp tmp
+  root="$(require_project "$@")"
+  [[ -n "$action" ]] || die "usage: agentdock job meeting start|conclude --title <title> --reason <tradeoff|conflict|qa-fail>"
+  shift || true
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --title|--name) title="${2:-}"; shift 2 ;;
+      --reason) reason="${2:-}"; shift 2 ;;
+      --proposals) proposals="${2:-}"; shift 2 ;;
+      --decision) decision="${2:-}"; shift 2 ;;
+      --rejected) rejected="${2:-}"; shift 2 ;;
+      --actions|--action-items) actions="${2:-}"; shift 2 ;;
+      --file) file="${2:-}"; shift 2 ;;
+      --project) shift 2 ;;
+      --project=*) shift ;;
+      *) if [[ -z "$title" ]]; then title="$1"; else decision="${decision:+$decision }$1"; fi; shift ;;
+    esac
+  done
+  job_dir="$(current_job_dir "$root")" || die "no active job. Run: agentdock job \"...\""
+  [[ -d "$job_dir" ]] || die "job directory not found: $job_dir"
+  mkdir -p "$job_dir/MEETINGS" "$job_dir/DECISIONS"
+  stamp="$(report_timestamp)"
+  case "$action" in
+    start|create|open)
+      [[ -n "$title" ]] || die "meeting title required"
+      [[ -n "$reason" ]] || die "meeting reason required"
+      case "$reason" in
+        tradeoff|conflict|qa-fail|security-review|architecture-decision) ;;
+        *) die "meeting reason must be one of: tradeoff, conflict, qa-fail, security-review, architecture-decision" ;;
+      esac
+      local max_meetings current_meetings
+      max_meetings="$(orchestration_field "$job_dir/ORCHESTRATION.json" budget.max_meetings 0)"
+      [[ "$max_meetings" =~ ^[0-9]+$ ]] || max_meetings=0
+      current_meetings="$(find "$job_dir/MEETINGS" -maxdepth 1 -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' ')"
+      if (( current_meetings >= max_meetings )); then
+        die "cannot create meeting; orchestration cap is $max_meetings. Meetings are only for real tradeoffs/conflicts/QA failures and require a recorded escalation reason."
+      fi
+      meeting_id="$(sanitize_id "$title")"; [[ -n "$meeting_id" ]] || meeting_id="meeting"
+      meeting_file="$job_dir/MEETINGS/meeting-$meeting_id.md"
+      cat > "$meeting_file" <<EOF
+# Meeting: $title
+
+Status: open
+Created: $stamp
+Reason: $reason
+
+## Policy
+Meetings are only for tradeoffs, conflicts, failed QA, security review, or architecture decisions. Do not use this artifact for routine status updates.
+
+## Proposals
+$(if [[ -n "$proposals" ]]; then printf '%s\n' "$proposals" | tr ';' '\n' | sed 's/^[[:space:]]*/- /'; else printf -- '- Pending proposals.\n'; fi)
+
+## Decision
+- Pending decision.
+
+## Rejected alternatives
+- Pending rejected alternatives.
+
+## Action items
+- Pending action items.
+EOF
+      [[ -f "$job_dir/LIFECYCLE.md" ]] && printf -- '- %s meeting: opened %s (%s)\n' "$stamp" "$title" "$meeting_file" >> "$job_dir/LIFECYCLE.md"
+      append_job_action_audit "$job_dir" "ceo" "meeting_start" "$title ($reason)" "ok"
+      say "Meeting opened: $meeting_file"
+      ;;
+    conclude|close|finish)
+      [[ -n "$file" || -n "$title" ]] || die "meeting title or --file required"
+      if [[ -n "$file" ]]; then meeting_file="$file"; [[ "$meeting_file" == /* ]] || meeting_file="$root/${meeting_file#./}"; else meeting_id="$(sanitize_id "$title")"; meeting_file="$job_dir/MEETINGS/meeting-$meeting_id.md"; fi
+      [[ -f "$meeting_file" ]] || die "meeting file not found: $meeting_file"
+      [[ -n "$decision" ]] || die "meeting conclusion requires --decision"
+      tmp="$meeting_file.tmp"
+      awk 'BEGIN{done=0} /^Status:/ && done==0 { print "Status: concluded"; done=1; next } { print } END{ if(done==0) print "Status: concluded" }' "$meeting_file" > "$tmp"
+      mv "$tmp" "$meeting_file"
+      {
+        printf '\n## Conclusion %s\n\n' "$stamp"
+        printf '## Decision\n- %s\n\n' "$decision"
+        printf '## Rejected alternatives\n'
+        if [[ -n "$rejected" ]]; then printf '%s\n' "$rejected" | tr ';' '\n' | sed 's/^[[:space:]]*/- /'; else printf -- '- None recorded.\n'; fi
+        printf '\n## Action items\n'
+        if [[ -n "$actions" ]]; then printf '%s\n' "$actions" | tr ';' '\n' | sed 's/^[[:space:]]*/- /'; else printf -- '- None recorded.\n'; fi
+      } >> "$meeting_file"
+      cp "$meeting_file" "$job_dir/DECISIONS/$(basename "$meeting_file")"
+      [[ -f "$job_dir/LIFECYCLE.md" ]] && printf -- '- %s meeting: concluded %s (%s)\n' "$stamp" "${title:-$(basename "$meeting_file")}" "$meeting_file" >> "$job_dir/LIFECYCLE.md"
+      append_job_action_audit "$job_dir" "ceo" "meeting_conclude" "${title:-$(basename "$meeting_file")}: $decision" "ok"
+      say "Meeting concluded: $meeting_file"
+      ;;
+    *) die "usage: agentdock job meeting start|conclude --title <title> ..." ;;
+  esac
+}
+
+cmd_job_tick() {
+  local root json=0 apply=0 job_dir mode qa_blocker="" qa_status="" tft_blocker="" missing_reports="" action reason command first_role role coordinator
+  root="$(require_project "$@")"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --json) json=1; shift ;;
+      --apply) apply=1; shift ;;
+      --project) shift 2 ;;
+      --project=*) shift ;;
+      *) shift ;;
+    esac
+  done
+  job_dir="$(current_job_dir "$root")" || die "no active job. Run: agentdock job \"...\""
+  source_runtime "$root"
+  coordinator="$(orchestrator_role "$root")"
+  mode="$(orchestration_field "$job_dir/ORCHESTRATION.json" mode legacy_controlled_actions)"
+  qa_status="$(job_qa_status "$job_dir")"
+  qa_blocker="$(job_qa_blocker "$job_dir" || true)"
+  tft_blocker="$(job_tft_blocker "$job_dir" || true)"
+  missing_reports="$(missing_selected_role_reports "$job_dir" "$coordinator" || true)"
+  if [[ "$qa_status" == "failed" ]]; then
+    action="create_tft_for_failed_qa"; reason="QA failed; use a bounded TFT only if the fix crosses role boundaries."; command="agentdock job tft create --name qa-fix --members <directly-relevant-roles> --goal \"Resolve QA failure\" --blocking"
+  elif [[ -n "$qa_blocker" ]]; then
+    action="request_qa_report"; reason="$qa_blocker"; command="agentdock job report --from <qa-role> --summary \"QA passed...\""
+  elif [[ -n "$tft_blocker" ]]; then
+    action="resolve_blocking_tft"; reason="$tft_blocker"; command="agentdock job tft close --name <name> --summary \"...\""
+  elif [[ -n "$missing_reports" ]]; then
+    first_role="$(printf '%s\n' "$missing_reports" | sed '/^$/d' | head -1)"
+    action="follow_up_missing_report"; reason="Selected role has not submitted a job report: $first_role"; command="agentdock send $first_role \"Please submit job report for $job_dir\""
+  else
+    action="suggest_finish"; reason="All current gates appear satisfied."; command="agentdock job finish --summary \"...\""
+  fi
+  if [[ "$mode" == "solo_direct" && "$action" == "follow_up_missing_report" ]]; then
+    reason="$reason. Do not create a team for this simple job unless a concrete blocker appears."
+  fi
+  if [[ "$json" == 1 ]]; then
+    printf '{"schema_version":"agentdock.tick.v1","job_path":'; json_string "$job_dir"; printf ',"mode":'; json_string "$mode"; printf ',"action":'; json_string "$action"; printf ',"reason":'; json_string "$reason"; printf ',"command":'; json_string "$command"; printf ',"applied":%s}\n' "$([[ "$apply" == 1 && "$action" == "follow_up_missing_report" && -n "$first_role" ]] && echo true || echo false)"
+  else
+    say "Tick action: $action"
+    say "Reason: $reason"
+    say "Suggested command: $command"
+  fi
+  if [[ "$apply" == 1 && "$action" == "follow_up_missing_report" && -n "$first_role" ]]; then
+    cmd_send "$first_role" "CEO follow-up: please submit your job report for $job_dir or report a blocker/dependency." --project "$root" >/dev/null || true
+    append_job_action_audit "$job_dir" "$coordinator" "tick_apply" "Followed up with $first_role for missing report" "ok"
+  fi
+}
+
 cmd_job() {
   case "${1:-}" in
     help|--help|-h)
       say "Usage: agentdock job [start] \"request...\" [--no-attach] [--project <path>]"
       say "       agentdock job report --from <role> --summary \"...\" [--job <path>]"
+      say "       agentdock job tft create --name <name> --members a,b --goal \"...\" [--exit-condition \"...\"]"
+      say "       agentdock job tft close --name <name> [--summary \"...\"]"
+      say "       agentdock job meeting start|conclude --title <title> --reason <tradeoff|conflict|qa-fail>"
+      say "       agentdock job tick [--json] [--apply]"
       say "       agentdock job finish --summary \"...\" [--job <path>] [--keep-team]"
       return 0
+      ;;
+    tft)
+      shift || true
+      cmd_job_tft "$@"
+      ;;
+    meeting)
+      shift || true
+      cmd_job_meeting "$@"
+      ;;
+    tick)
+      shift || true
+      cmd_job_tick "$@"
       ;;
     report|submit)
       shift || true
@@ -2606,12 +3538,26 @@ cmd_task() {
   done
   [[ -n "$file" ]] && text="$(cat "$file")"
   [[ -n "$text" ]] || die "task text required"
-  local ts job role msg id var display mission task_file
+  local ts job role msg id var display mission task_file orchestration_file orchestration_mode orchestration_reason orchestration_team_cap orchestration_requires_qa rec_limit
   ts="$(timestamp)"
   job="$root/.agent-work/07_JOBS/JOB-$ts"
-  mkdir -p "$job/TASKS" "$job/LOGS" "$job/REPORTS" "$job/HANDOFFS" "$job/OUTPUTS"
-  role="${to:-$(orchestrator_role "$root")}"
+  mkdir -p "$job/TASKS" "$job/LOGS" "$job/REPORTS" "$job/HANDOFFS" "$job/OUTPUTS" "$job/TFTS" "$job/MEETINGS" "$job/DECISIONS"
   source_runtime "$root"
+  write_orchestration_json "$root" "$job" "$text"
+  orchestration_file="$job/ORCHESTRATION.json"
+  orchestration_mode="$(orchestration_field "$orchestration_file" mode legacy_controlled_actions)"
+  orchestration_reason="$(orchestration_field "$orchestration_file" reason "")"
+  orchestration_team_cap="$(orchestration_field "$orchestration_file" team_cap 1)"
+  orchestration_requires_qa="$(orchestration_field "$orchestration_file" requires_qa false)"
+  case "$orchestration_mode" in solo_direct) rec_limit=0 ;; assisted_single_lane) rec_limit=1 ;; *) rec_limit="$orchestration_team_cap" ;; esac
+  [[ "$rec_limit" =~ ^[0-9]+$ ]] || rec_limit=1
+  (( rec_limit > 6 )) && rec_limit=6
+  role="${to:-$(orchestrator_role "$root")}"
+  local other_roles=""
+  for id in $AGENT_IDS; do [[ "$id" != "$role" ]] && other_roles="$other_roles $id"; done
+  other_roles="$(printf '%s' "$other_roles" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+  update_orchestration_selected_roles "$orchestration_file" "$role" "$other_roles"
+  write_dependencies_template "$job"
   cat > "$job/README.md" <<EOF
 # JOB-$ts
 
@@ -2629,6 +3575,12 @@ new
 
 ## Assigned orchestrator
 $role
+
+## Adaptive orchestration
+Mode: $orchestration_mode
+Reason: $orchestration_reason
+Team cap: $orchestration_team_cap
+QA required: $orchestration_requires_qa
 
 ## Required CEO flow
 1. Read the request and inspect available templates with \`agentdock roles list\`.
@@ -2673,15 +3625,21 @@ EOF
     printf '| Template | Role | Department | Score | Why |\n'
     printf '|---|---|---|---:|---|\n'
     local rec_template rec_display rec_department rec_archetype rec_score rec_reason rec_count=0
-    while IFS=$'\t' read -r rec_template rec_display rec_department rec_archetype rec_score rec_reason; do
-      [[ -n "$rec_template" ]] || continue
-      rec_count=$((rec_count + 1))
-      printf '| %s | %s | %s | %s | %s |\n' "$rec_template" "$rec_display" "$rec_department" "$rec_score" "$rec_reason"
-    done < <(agency_recommend_templates "$root" "$text" 6 text)
-    if [[ "$rec_count" -eq 0 ]]; then
-      printf '| - | No agency specialist recommendation for this request. | - | 0 | Reuse configured/BMAD roles first. |\n'
+    if [[ "$rec_limit" -gt 0 ]]; then
+      while IFS=$'\t' read -r rec_template rec_display rec_department rec_archetype rec_score rec_reason; do
+        [[ -n "$rec_template" ]] || continue
+        rec_count=$((rec_count + 1))
+        printf '| %s | %s | %s | %s | %s |\n' "$rec_template" "$rec_display" "$rec_department" "$rec_score" "$rec_reason"
+      done < <(agency_recommend_templates "$root" "$text" "$rec_limit" text)
     fi
-    printf '\nRecruit only if missing from the current team, for example:\n'
+    if [[ "$rec_count" -eq 0 ]]; then
+      if [[ "$orchestration_mode" == "solo_direct" ]]; then
+        printf '| - | No specialist recommendation. | - | 0 | This is classified as a lightweight job; keep it with the coordinator unless a concrete blocker appears. |\n'
+      else
+        printf '| - | No agency specialist recommendation for this request. | - | 0 | Reuse configured/BMAD roles first. |\n'
+      fi
+    fi
+    printf '\nRecruit only if missing from the current team and justified by the orchestration mode, for example:\n'
     printf '\n```bash\n'
     printf 'agentdock recruit <role-name> --template <template-id> --mission "..." --instructions "..."\n'
     printf '```\n'
@@ -2703,6 +3661,22 @@ Status: executing
 - $ts new: job created by $from for $role
 - $ts executing: initial task cards dispatched to configured roles
 EOF
+  if [[ "$orchestration_requires_qa" == "true" ]]; then
+    cat > "$job/QA.md" <<EOF
+# QA Gate
+
+Status: pending
+Required: true
+Reason: $orchestration_reason
+
+## Rule
+The job cannot be finished until a QA/review role submits a passing report with \`agentdock job report --from <qa-role> --summary "..."\`.
+
+## Evidence
+- Pending QA evidence.
+EOF
+  fi
+
   cat > "$job/TASKS/README.md" <<EOF
 # Task Cards
 
@@ -2806,11 +3780,20 @@ cmd_send() {
 
 send_message_to_role() {
   local root="$1" role="$2" message="$3"
-  local ts inbox pane
+  local ts inbox pane job_dir=""
   ts="$(timestamp)"
+  job_dir="$(current_job_dir "$root" 2>/dev/null || true)"
   inbox="$root/.agent-work/12_INBOX/$role/MSG-$ts-from-user.md"
   mkdir -p "$(dirname "$inbox")"
-  printf '# Message %s\n\n%s\n' "$ts" "$message" > "$inbox"
+  {
+    printf '# Message %s\n\n' "$ts"
+    printf 'From: user\n'
+    printf 'To: %s\n' "$role"
+    printf 'Created: %s\n' "$ts"
+    [[ -n "$job_dir" ]] && printf 'Job: %s\n' "$job_dir"
+    printf 'Channel: agentdock-inbox\n\n'
+    printf '## Body\n%s\n' "$message"
+  } > "$inbox"
   (cd "$root" && pane="$(tmux_target_for_role "$role" || true)"
     if [[ -n "$pane" && "$pane" != "${TMUX_PANE:-}" ]]; then
       tmux send-keys -t "$pane" "$message" C-m || true
@@ -3114,6 +4097,12 @@ cmd_inbox() {
       [[ -n "$file" ]] || continue
       printf '\n## %s\n' "$file"
       sed -n '1,8p' "$file"
+      if grep -q '^## Body' "$file"; then
+        awk '
+          /^## Body[[:space:]]*$/ { in_body=1; next }
+          in_body && printed < 4 { print; printed++ }
+        ' "$file"
+      fi
     done
   else
     local id count latest
@@ -3411,7 +4400,7 @@ workspace_collect_roles() {
 workspace_snapshot_json() {
   local root="$1"
   source_runtime "$root"
-  local generated_at project_name session_name job_dir job_readme job_id lifecycle_status lifecycle_path team_path configured selected coordinator final_ready=true final_reason missing_roles="" report_total=0 selected_count=0 selected_worker_count=0 submitted_count=0 role role_count=0 density config_warnings job_request_for_recommendations
+  local generated_at project_name session_name job_dir job_readme job_id lifecycle_status lifecycle_path team_path configured selected coordinator final_ready=true final_reason missing_roles="" report_total=0 selected_count=0 selected_worker_count=0 submitted_count=0 role role_count=0 density config_warnings job_request_for_recommendations orchestration_json dependencies_json meetings_json write_conflicts_json communications_json qa_required=false qa_status="not_required" qa_path="" qa_reason="" qa_blocker="" tft_blocker="" recommendation_limit=0 orchestration_mode=""
   generated_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   project_name="${PROJECT_NAME:-$(basename "$root")}"; session_name="${SESSION_NAME:-}"
   configured="${AGENT_IDS:-}"
@@ -3424,6 +4413,22 @@ workspace_snapshot_json() {
     job_id="$(basename "$job_dir")"
     lifecycle_path="$job_dir/LIFECYCLE.md"
     team_path="$job_dir/TEAM.md"
+    orchestration_json="$(workspace_orchestration_json "$job_dir")"
+    dependencies_json="$(workspace_dependencies_json "$job_dir")"
+    meetings_json="$(workspace_meetings_json "$job_dir")"
+    write_conflicts_json="$(workspace_write_conflicts_json "$job_dir")"
+    communications_json="$(workspace_communications_json "$job_dir")"
+    orchestration_mode="$(orchestration_field "$job_dir/ORCHESTRATION.json" mode legacy_controlled_actions)"
+    case "$orchestration_mode" in
+      solo_direct) recommendation_limit=0 ;;
+      assisted_single_lane) recommendation_limit=1 ;;
+      *) recommendation_limit="$(orchestration_field "$job_dir/ORCHESTRATION.json" team_cap 6)" ;;
+    esac
+    [[ "$recommendation_limit" =~ ^[0-9]+$ ]] || recommendation_limit=0
+    (( recommendation_limit > 6 )) && recommendation_limit=6
+    if job_requires_qa "$job_dir"; then qa_required=true; qa_path="$job_dir/QA.md"; fi
+    qa_status="$(job_qa_status "$job_dir")"
+    qa_reason="$({ sed -n 's/^Reason:[[:space:]]*//p' "$job_dir/QA.md" 2>/dev/null || true; } | head -1)"
     lifecycle_status="$(sed -n 's/^Status: //p' "$lifecycle_path" 2>/dev/null | head -1)"
     [[ -n "$lifecycle_status" ]] || lifecycle_status="unknown"
     selected="$(workspace_task_roles "$job_dir" | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
@@ -3448,10 +4453,25 @@ workspace_snapshot_json() {
     else
       final_reason="Missing job report(s) for selected worker role(s): $missing_roles"
     fi
+    qa_blocker="$(job_qa_blocker "$job_dir" || true)"
+    if [[ -n "$qa_blocker" ]]; then
+      final_ready=false
+      final_reason="$qa_blocker"
+    fi
+    tft_blocker="$(job_tft_blocker "$job_dir" || true)"
+    if [[ -n "$tft_blocker" ]]; then
+      final_ready=false
+      final_reason="$tft_blocker"
+    fi
     report_total="$(find "$job_dir/REPORTS" -maxdepth 1 -type f -name '*.md' ! -name '*-final.md' 2>/dev/null | wc -l | tr -d ' ')"
   else
     final_ready=false
     final_reason="No active job found."
+    orchestration_json='{"schema_version":"agentdock.orchestration.v1","mode":"idle","complexity":"none","risk":"none","reason":"No active job found.","requires_qa":false,"team_cap":0}'
+    dependencies_json='{"schema_version":"agentdock.dependencies.v1","items":[]}'
+    meetings_json='{"schema_version":"agentdock.meetings.v1","items":[]}'
+    write_conflicts_json='{"schema_version":"agentdock.write_conflicts.v1","items":[]}'
+    communications_json='{"schema_version":"agentdock.communications.v1","items":[]}'
   fi
   role_count="$(workspace_collect_roles "$root" "$job_dir" "$configured" | sed '/^$/d' | wc -l | tr -d ' ')"
   density="$(workspace_density_label "$role_count")"
@@ -3476,6 +4496,16 @@ workspace_snapshot_json() {
   first=1
   if [[ -n "$missing_roles" ]]; then
     printf '{"type":"missing_report","severity":"warning","summary":'; json_string "$final_reason"; printf '}'
+    first=0
+  fi
+  if [[ -n "$qa_blocker" ]]; then
+    [[ "$first" == 1 ]] || printf ', '
+    printf '{"type":"qa_gate","severity":"warning","summary":'; json_string "$qa_blocker"; printf ',"next_action":"QA/review role must submit a passing agentdock job report","source_path":'; json_string "$qa_path"; printf '}'
+    first=0
+  fi
+  if [[ -n "$tft_blocker" ]]; then
+    [[ "$first" == 1 ]] || printf ', '
+    printf '{"type":"blocking_tft","severity":"warning","summary":'; json_string "$tft_blocker"; printf ',"next_action":"Close or resolve the active blocking TFT"}'
     first=0
   fi
   if [[ -n "$job_dir" && -d "$job_dir/TASKS" && "$lifecycle_status" != "complete" ]]; then
@@ -3508,8 +4538,52 @@ workspace_snapshot_json() {
       fi
     done < <(find "$job_dir/REPORTS" -maxdepth 1 -type f -name '*.md' ! -name '*-final.md' 2>/dev/null | sort)
   fi
+  if [[ -n "$job_dir" ]]; then
+    local dep_alerts
+    dep_alerts="$(python3 - <<PY
+import json
+data=json.loads('''$dependencies_json''')
+for item in data.get('items', []):
+    role=item.get('role') or ''
+    waiting=item.get('waiting_on') or ''
+    if role and waiting and item.get('status','open') != 'closed':
+        print(role + '\t' + waiting + '\t' + (item.get('reason') or 'waiting on dependency') + '\t' + (item.get('source_path') or ''))
+PY
+)"
+    while IFS=$'\t' read -r dep_role dep_waiting dep_reason dep_source; do
+      [[ -n "$dep_role" ]] || continue
+      [[ "$first" == 1 ]] || printf ', '
+      printf '{"type":"dependency","severity":"warning","role":'; json_string "$dep_role"; printf ',"summary":'; json_string "$dep_role waiting on $dep_waiting: $dep_reason"; printf ',"next_action":"CEO should follow up before recruiting backup; create TFT only if the blocker crosses role boundaries","recovery_suggestion":"follow_up_then_tft_if_cross_role","source_path":'; json_string "$dep_source"; printf '}'
+      first=0
+    done <<< "$dep_alerts"
+  fi
+  if [[ -n "$job_dir" ]]; then
+    local conflict_alerts
+    conflict_alerts="$(python3 - <<PY
+import json
+data=json.loads('''$write_conflicts_json''')
+for item in data.get('items', []):
+    print((item.get('file') or '') + '\t' + ','.join(item.get('roles') or []))
+PY
+)"
+    while IFS=$'\t' read -r conflict_file conflict_roles; do
+      [[ -n "$conflict_file" ]] || continue
+      [[ "$first" == 1 ]] || printf ', '
+      printf '{"type":"write_conflict","severity":"warning","summary":'; json_string "Shared write scope conflict on $conflict_file: $conflict_roles"; printf ',"next_action":"CEO must coordinate write ownership before parallel edits","recovery_suggestion":"assign_owner_or_split_scope"}'
+      first=0
+    done <<< "$conflict_alerts"
+  fi
   printf '],\n'
-  printf '  "commands": {"mode":"controlled-actions", "write_bridge_enabled": false, "allowed_read_commands":["agentdock team","agentdock report --fast","agentdock inbox <role>","agentdock workspace snapshot --json"], "allowed_actions":["agentdock job --no-attach","agentdock send <coordinator>","agentdock broadcast --selected","agentdock send <role>","agentdock recruit <role> --template <template>","agentdock job report --from <role>","agentdock job finish"]},\n'
+  printf '  "commands": {"mode":"controlled-actions", "write_bridge_enabled": false, "allowed_read_commands":["agentdock team","agentdock report --fast","agentdock inbox <role>","agentdock workspace snapshot --json","agentdock workspace model --json","agentdock job tick --json"], "allowed_actions":["agentdock job --no-attach","agentdock workspace model set","agentdock send <coordinator>","agentdock broadcast --selected","agentdock send <role>","agentdock recruit <role> --template <template>","agentdock job report --from <role>","agentdock job tft create","agentdock job tft close","agentdock job meeting start","agentdock job meeting conclude","agentdock job tick --apply","agentdock job finish"]},\n'
+  printf '  "orchestration": %s,\n' "$orchestration_json"
+  printf '  "dependencies": %s,\n' "$dependencies_json"
+  printf '  "meetings": %s,\n' "$meetings_json"
+  printf '  "write_conflicts": %s,\n' "$write_conflicts_json"
+  printf '  "communications": %s,\n' "$communications_json"
+  printf '  "qa": {"required": %s, "status": ' "$qa_required"; json_string "$qa_status"; printf ', "path": '; json_string "$qa_path"; printf ', "reason": '; json_string "$qa_reason"; printf '},\n'
+  printf '  "model": '
+  workspace_model_state_json
+  printf ',\n'
   printf '  "support": {"linux":"supported", "macos":"supported with Bash 4+ and tmux", "windows":"WSL-only/unsupported native"},\n'
   printf '  "org": {"model": "CEO -> department bay -> role", "zones": ['
   local zones=("CEO Office" "Product Bay" "Engineering Bay" "Quality Bay" "Delivery Bay" "Blocker Desk" "Report Desk")
@@ -3530,7 +4604,7 @@ workspace_snapshot_json() {
   done
   printf '], "required_worker_reports": %s, "submitted_worker_reports": %s, "recommendations": [' "$selected_worker_count" "$submitted_count"
   first=1
-  if [[ -n "$job_request_for_recommendations" ]]; then
+  if [[ -n "$job_request_for_recommendations" && "$recommendation_limit" -gt 0 ]]; then
     local rec_template rec_display rec_department rec_archetype rec_score rec_reason
     while IFS=$'\t' read -r rec_template rec_display rec_department rec_archetype rec_score rec_reason; do
       [[ -n "$rec_template" ]] || continue
@@ -3543,11 +4617,36 @@ workspace_snapshot_json() {
       printf ', "score": %s' "${rec_score:-0}"
       printf ', "reason": '; json_string "$rec_reason"
       printf '}'
-    done < <(agency_recommend_templates "$root" "$job_request_for_recommendations" 6 text)
+    done < <(agency_recommend_templates "$root" "$job_request_for_recommendations" "$recommendation_limit" text)
   fi
   printf '], "policy": "reuse configured/running roles first; recruit missing capabilities only; one report per selected non-coordinator task role"},\n'
   printf '  "tfts": ['
   first=1
+  if [[ -n "$job_dir" && -d "$job_dir/TFTS" ]]; then
+    local tft_file tft_name tft_members tft_goal tft_status tft_exit member_line member_first
+    while IFS= read -r tft_file; do
+      [[ -n "$tft_file" ]] || continue
+      tft_name="$(sed -n 's/^# TFT:[[:space:]]*//p' "$tft_file" 2>/dev/null | head -1)"
+      [[ -n "$tft_name" ]] || tft_name="$(basename "$tft_file" .md)"
+      tft_status="$(sed -n 's/^Status:[[:space:]]*//p' "$tft_file" 2>/dev/null | head -1)"
+      [[ -n "$tft_status" ]] || tft_status="planned"
+      tft_goal="$(sed -n 's/^Goal:[[:space:]]*//p' "$tft_file" 2>/dev/null | head -1)"
+      tft_exit="$(sed -n 's/^Exit condition:[[:space:]]*//p' "$tft_file" 2>/dev/null | head -1)"
+      [[ "$first" == 1 ]] || printf ', '
+      first=0
+      printf '{"name": '; json_string "$tft_name"; printf ', "source_path": '; json_string "$tft_file"; printf ', "status": '; json_string "$tft_status"; printf ', "goal": '; json_string "$tft_goal"; printf ', "exit_condition": '; json_string "$tft_exit"; printf ', "members": ['
+      member_first=1
+      while IFS= read -r member_line; do
+        member_line="$(printf '%s' "$member_line" | sed -E 's/^-+[[:space:]]*//; s/[[:space:]]+$//')"
+        member_line="$(sanitize_id "$member_line")"
+        [[ -n "$member_line" ]] || continue
+        [[ "$member_first" == 1 ]] || printf ', '
+        member_first=0
+        json_string "$member_line"
+      done < <(awk '/^## Members/{capture=1; next} /^## / && capture{exit} capture && /^-/{print}' "$tft_file" 2>/dev/null)
+      printf ']}'
+    done < <(find "$job_dir/TFTS" -maxdepth 1 -type f -name '*.md' 2>/dev/null | sort | head -20)
+  fi
   if [[ -n "$job_dir" && -f "$team_path" ]]; then
     while IFS= read -r tft_line; do
       [[ -n "$tft_line" ]] || continue
@@ -3691,6 +4790,28 @@ workspace_snapshot_json() {
       json_string "$warning"
       first=0
     done <<< "$config_warnings"
+  fi
+  if [[ -n "$job_dir" ]]; then
+    local missing_task_roles
+    missing_task_roles="$(python3 - "$job_dir" <<'PY'
+import json, sys
+from pathlib import Path
+job=Path(sys.argv[1])
+try:
+    data=json.loads((job/'ORCHESTRATION.json').read_text(encoding='utf-8'))
+except Exception:
+    data={}
+for role in data.get('selected_roles') or []:
+    if role and not (job/'TASKS'/f'{role}.md').exists():
+        print(role)
+PY
+)"
+    while IFS= read -r role; do
+      [[ -n "$role" ]] || continue
+      [[ "$first" == 1 ]] || printf ', '
+      json_string "Selected role $role has no task card; CEO should create TASKS/$role.md or remove the selection."
+      first=0
+    done <<< "$missing_task_roles"
   fi
   printf ']\n'
   printf '}\n'
@@ -3905,6 +5026,103 @@ EOF
   die "agentdock-workspace binary not found and Tauri source is unavailable; run from the AgentDock repo or build/install the desktop app"
 }
 
+persist_hermes_global_model() {
+  local model="$1" provider="${2:-}"
+  have hermes || return 1
+  hermes config set model.default "$model" >/dev/null 2>&1 || return 1
+  if [[ -n "$provider" ]]; then
+    hermes config set model.provider "$provider" >/dev/null 2>&1 || return 1
+  fi
+  return 0
+}
+
+apply_hermes_model_to_running_roles() {
+  local root="$1" model="$2" provider="${3:-}" role pane first=1 applied_count=0 command
+  local applied_json=""
+  have tmux || { printf '0\t[]\n'; return 0; }
+  command="/model $model"
+  [[ -n "$provider" ]] && command="$command --provider $provider"
+  command="$command --global"
+  for role in $AGENT_IDS; do
+    pane="$(cd "$root" && tmux_target_for_role "$role" || true)"
+    [[ -n "$pane" ]] || continue
+    tmux send-keys -t "$pane" "$command" C-m || continue
+    [[ "$first" == 1 ]] || applied_json="$applied_json, "
+    first=0
+    applied_json="$applied_json$(json_string "$role")"
+    applied_count=$((applied_count + 1))
+  done
+  printf '%s\t[%s]\n' "$applied_count" "$applied_json"
+}
+
+cmd_workspace_model() {
+  local root="$1"
+  shift || true
+  source_runtime "$root"
+  local sub="${1:---json}" model="" provider="" json=0 apply_running=0 persist_global=0 applied_count=0 applied_roles="[]" global_persisted=false apply_result
+  if [[ "$sub" == "--json" || "$sub" == "get" || -z "$sub" ]]; then
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --json|get) json=1; shift ;;
+        --project) shift 2 ;;
+        --project=*) shift ;;
+        *) shift ;;
+      esac
+    done
+    workspace_model_state_json
+    printf '\n'
+    return 0
+  fi
+  [[ "$sub" == "set" ]] || die "usage: agentdock workspace model --json | workspace model set --model <id> [--provider <id>] [--apply-running] [--global] --json"
+  shift || true
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --model) model="${2:-}"; shift 2 ;;
+      --model=*) model="${1#*=}"; shift ;;
+      --provider) provider="${2:-}"; shift 2 ;;
+      --provider=*) provider="${1#*=}"; shift ;;
+      --apply-running) apply_running=1; shift ;;
+      --global) persist_global=1; shift ;;
+      --json) json=1; shift ;;
+      --project) shift 2 ;;
+      --project=*) shift ;;
+      *) die "unknown workspace model option: $1" ;;
+    esac
+  done
+  validate_hermes_model_value "$model"
+  validate_hermes_provider_value "$provider"
+  [[ -n "$provider" ]] || provider="$(workspace_provider_value)"
+  HERMES_MODEL="$model"
+  HERMES_PROVIDER="$provider"
+  write_runtime "$root" "$PROJECT_NAME" "$SESSION_NAME" "$LAYOUT" "$AGENT_IDS"
+  if [[ "$persist_global" == 1 ]]; then
+    if persist_hermes_global_model "$model" "$provider"; then
+      global_persisted=true
+    fi
+  fi
+  if [[ "$apply_running" == 1 ]]; then
+    apply_result="$(apply_hermes_model_to_running_roles "$root" "$model" "$provider")"
+    applied_count="${apply_result%%$'\t'*}"
+    applied_roles="${apply_result#*$'\t'}"
+  fi
+  if [[ "$json" == 1 ]]; then
+    printf '{"ok":true,"message":'
+    json_string "AI model saved for AgentDock Hermes roles."
+    printf ',"provider":'; json_string "$provider"
+    printf ',"model":'; json_string "$model"
+    printf ',"source":"project"'
+    printf ',"global_persisted":%s' "$global_persisted"
+    printf ',"applied_running_count":%s' "$applied_count"
+    printf ',"applied_roles":%s' "$applied_roles"
+    printf ',"options":'
+    workspace_model_options_json | tr -d '\n'
+    printf '}\n'
+  else
+    say "AI model saved for AgentDock Hermes roles: $provider / $model"
+    [[ "$applied_count" -gt 0 ]] && say "Applied to $applied_count running role(s)."
+  fi
+}
+
 cmd_workspace() {
   local sub="${1:-}" root out=""
   shift || true
@@ -3928,7 +5146,10 @@ cmd_workspace() {
     app)
       cmd_workspace_app "$root" "$@"
       ;;
-    *) die "usage: agentdock workspace snapshot --json | workspace export --out <file> | workspace app" ;;
+    model)
+      cmd_workspace_model "$root" "$@"
+      ;;
+    *) die "usage: agentdock workspace snapshot --json | workspace export --out <file> | workspace app | workspace model --json" ;;
   esac
 }
 

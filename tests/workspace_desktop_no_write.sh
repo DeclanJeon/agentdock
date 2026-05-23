@@ -33,10 +33,10 @@ PY
 
 compact_lib="$(tr -d '[:space:]' < "$TMP/lib.production.rs")"
 grep -q 'workspace_snapshot' "$TMP/lib.production.rs" || fail "workspace_snapshot command missing"
-for handler in workspace_watch_start agentdock_job_create agentdock_job_followup agentdock_team_broadcast agentdock_role_send agentdock_recruit_preview agentdock_recruit_role agentdock_task_proposal agentdock_job_report agentdock_finish_preview agentdock_job_finish; do
+for handler in workspace_watch_start workspace_model workspace_model_set agentdock_job_create agentdock_job_followup agentdock_team_broadcast agentdock_role_send agentdock_recruit_preview agentdock_recruit_role agentdock_task_proposal agentdock_job_report agentdock_finish_preview agentdock_job_finish; do
   grep -q "$handler" "$TMP/lib.production.rs" || fail "$handler command missing"
 done
-for handler in workspace_snapshot workspace_watch_start agentdock_job_create agentdock_job_followup agentdock_team_broadcast agentdock_role_send agentdock_recruit_preview agentdock_recruit_role agentdock_task_proposal agentdock_job_report agentdock_finish_preview agentdock_job_finish; do
+for handler in workspace_snapshot workspace_watch_start workspace_model workspace_model_set agentdock_job_create agentdock_job_followup agentdock_team_broadcast agentdock_role_send agentdock_recruit_preview agentdock_recruit_role agentdock_task_proposal agentdock_job_report agentdock_finish_preview agentdock_job_finish; do
   [[ "$compact_lib" == *"$handler"* ]] || fail "Tauri invoke handler missing $handler"
 done
 if grep -Eq 'generate_handler!\[[^]]*(write_file|remove_file|OpenOptions|File::create|std::fs::write)' "$TMP/lib.production.rs"; then

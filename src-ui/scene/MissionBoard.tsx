@@ -6,7 +6,7 @@ export function MissionBoard({ scene }: { scene: SceneModel }) {
       <p className="eyebrow">Mission Board</p>
       <h2>{scene.meta.jobId}</h2>
       <p>{scene.meta.lifecycle} · {scene.meta.freshnessLabel}</p>
-      <p>{scene.office.selectedCount}/{scene.office.roleCount} roles selected · read-only snapshot</p>
+      <p>{scene.office.selectedCount}/{scene.office.roleCount} 역할 선택됨 · 현재 작업 상태</p>
       <div className="mission-tokens" aria-label="Selected role count and density">
         <span>{scene.office.density}</span>
         <span>{scene.reportDesk.coverageLabel}</span>

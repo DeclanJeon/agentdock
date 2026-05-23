@@ -72,7 +72,7 @@ const zoneBlueprints: Array<Omit<SceneZone, 'roleIds'>> = [
   { id: 'bench', title: 'Delivery Bay', subtitle: 'milestones and waiting bench roles', geometry: { x: 1, y: 28, w: 14, h: 10 }, tone: 'lounge' },
   { id: 'report', title: 'Report Desk', subtitle: 'selected-role report slots', geometry: { x: 16, y: 28, w: 16, h: 10 }, tone: 'green' },
   { id: 'blocker', title: 'Blocker Desk', subtitle: 'blockers and warnings', geometry: { x: 33, y: 28, w: 10, h: 10 }, tone: 'red' },
-  { id: 'utility', title: 'Security Nook', subtitle: 'read-only snapshot boundary', geometry: { x: 44, y: 28, w: 14, h: 10 }, tone: 'steel' },
+  { id: 'utility', title: '안전 구역', subtitle: '승인된 액션만 사용', geometry: { x: 44, y: 28, w: 14, h: 10 }, tone: 'steel' },
 ];
 
 export function deriveRoleArchetype(role: WorkspaceRole): RoleArchetype {
@@ -253,7 +253,7 @@ export function deriveSceneModel(snapshot: WorkspaceSnapshot, options: { mode: W
       readOnly: true,
       jobId: snapshot.job?.id ?? 'no-active-job',
       lifecycle: snapshot.job?.lifecycle ?? snapshot.job?.lifecycle_status ?? 'unknown',
-      freshnessLabel: options.mode === 'live' ? 'Live snapshot' : options.mode === 'idle' ? 'No live snapshot yet' : options.mode === 'stale' ? 'Stale last-good snapshot' : 'Snapshot error fallback',
+      freshnessLabel: options.mode === 'live' ? '현재 작업 상태' : options.mode === 'idle' ? '작업 상태 대기 중' : options.mode === 'stale' ? '최근 작업 상태' : '작업 상태 확인 필요',
     },
     office: { density, zones, roleCount: roles.length, selectedCount: selectedRoles.length },
     roles,

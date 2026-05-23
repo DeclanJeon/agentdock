@@ -37,7 +37,7 @@ output_job_id = output_job_match.group(1) if output_job_match else "unknown"
 job_consistent = output_job_id == "unknown" or output_job_id == job_id
 required = [
   "live-normal", "missing-reports", "blocker-present", "final-ready",
-  "dense-20", "dense-50-search-filter", "stale-last-good", "demo-fallback",
+  "dense-20", "dense-50-search-filter", "stale-last-good",
   "error-state", "keyboard-focus", "reduced-motion", "read-only-security",
 ]
 # Review-only screenshot IDs used by the UI contact sheet. They are not part of
@@ -92,7 +92,7 @@ from pathlib import Path
 out = Path(sys.argv[1])
 required = [
   "live-normal", "missing-reports", "blocker-present", "final-ready",
-  "dense-20", "dense-50-search-filter", "stale-last-good", "demo-fallback",
+  "dense-20", "dense-50-search-filter", "stale-last-good",
   "error-state", "keyboard-focus", "reduced-motion", "read-only-security",
 ]
 # live-click-filled is intentionally captured by tests/workspace_live_click_job_create.sh
