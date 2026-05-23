@@ -20,9 +20,9 @@ const MAX_ACTION_MESSAGE_CHARS: usize = 4000;
 const MAX_SUMMARY_CHARS: usize = 4000;
 const MAX_ROLE_ID_CHARS: usize = 64;
 const MAX_MODEL_ID_CHARS: usize = 120;
-const WATCH_SCAN_INTERVAL: Duration = Duration::from_millis(1200);
+const WATCH_SCAN_INTERVAL: Duration = Duration::from_millis(1500);
 const WATCH_EVENT_COOLDOWN: Duration = Duration::from_millis(900);
-const WATCH_SCAN_FILE_LIMIT: usize = 6000;
+const WATCH_SCAN_FILE_LIMIT: usize = 1800;
 
 static ACTIVE_WORKSPACE_WATCHERS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
@@ -197,6 +197,7 @@ fn build_job_create_args(request: &str) -> Vec<String> {
     vec![
         "job".to_string(),
         "--no-attach".to_string(),
+        "--fast-return".to_string(),
         request.to_string(),
     ]
 }
@@ -380,6 +381,16 @@ fn hash_workspace_entry(path: &Path, root: &Path, hasher: &mut DefaultHasher) ->
     Ok(())
 }
 
+fn should_skip_watch_path(path: &Path, root: &Path) -> bool {
+    let relative = path.strip_prefix(root).unwrap_or(path).to_string_lossy();
+    relative.starts_with(".agent-work/11_ARCHIVE")
+        || relative.starts_with(".agent-work/16_WORKTREES")
+        || relative.starts_with(".agentdock/generated")
+        || relative.starts_with(".agentdock/prompts")
+        || relative == ".agentdock/state/workspace-snapshot-cache.json"
+        || relative.ends_with(".hash")
+}
+
 fn scan_workspace_dir(
     dir: &Path,
     root: &Path,
@@ -396,6 +407,9 @@ fn scan_workspace_dir(
             break;
         }
         let path = entry.path();
+        if should_skip_watch_path(&path, root) {
+            continue;
+        }
         if hash_workspace_entry(&path, root, hasher).is_err() {
             continue;
         }
@@ -767,6 +781,8 @@ fn workspace_snapshot(project_root: String) -> CommandResult {
         "workspace".to_string(),
         "snapshot".to_string(),
         "--json".to_string(),
+        "--cache-ms".to_string(),
+        "700".to_string(),
         "--project".to_string(),
         project_root_string,
     ];
@@ -1846,7 +1862,7 @@ mod tests {
     fn job_create_builds_exact_no_shell_args() {
         let request = "summarize risk; rm -rf /";
         let args = build_job_create_args(request);
-        assert_eq!(args, vec!["job", "--no-attach", request]);
+        assert_eq!(args, vec!["job", "--no-attach", "--fast-return", request]);
     }
 
     #[test]
@@ -1950,7 +1966,7 @@ mod tests {
         assert!(result.ok, "{}", result.message);
         assert_eq!(result.job_id.as_deref(), Some("JOB-FAKE123"));
         let recorded = fs::read_to_string(argv_file).unwrap();
-        assert_eq!(recorded, format!("job\n--no-attach\n{request}\n"));
+        assert_eq!(recorded, format!("job\n--no-attach\n--fast-return\n{request}\n"));
         std::env::remove_var("AGENTDOCK_BIN");
         let _ = fs::remove_dir_all(root);
     }

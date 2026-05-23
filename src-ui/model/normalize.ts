@@ -72,10 +72,14 @@ export function statusLabel(status?: string): string {
     case 'running':
     case 'working':
       return '작업 중';
+    case 'reviewing':
+      return '검토 중';
     case 'assigned':
       return '배정됨';
     case 'blocked':
       return '막힘';
+    case 'idle':
+      return '대기 중';
     case 'offline':
       return '오프라인';
     case 'configured':

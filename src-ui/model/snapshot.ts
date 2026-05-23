@@ -2,10 +2,12 @@ export type WorkspaceRoleStatus =
   | 'ready'
   | 'running'
   | 'working'
+  | 'reviewing'
   | 'assigned'
   | 'configured'
   | 'reported'
   | 'blocked'
+  | 'idle'
   | 'offline'
   | 'unknown';
 
@@ -23,6 +25,19 @@ export interface WorkspaceRole {
   latest_report_path?: string;
   status?: WorkspaceRoleStatus | string;
   status_reason?: string;
+  live_status?: {
+    state?: WorkspaceRoleStatus | string;
+    summary?: string;
+    progress?: number | null;
+    updated_at?: string;
+    age_seconds?: number | null;
+  };
+  worktree?: {
+    branch?: string;
+    path?: string;
+    exists?: boolean;
+    job_path?: string;
+  };
   template_id?: string;
   agency_profile?: {
     template_id?: string;
@@ -150,6 +165,19 @@ export interface WorkspaceCommunications {
   items?: Array<{ time?: string; actor?: string; action?: string; status?: string; summary?: string; source_path?: string }>;
 }
 
+export interface WorkspaceWorktrees {
+  schema_version?: string;
+  items?: Array<{
+    role?: string;
+    branch?: string;
+    path?: string;
+    job_path?: string;
+    exists?: boolean;
+    status?: string;
+    dirty?: boolean;
+  }>;
+}
+
 export interface WorkspaceSnapshot {
   schema_version?: string;
   generated_at?: string;
@@ -191,6 +219,7 @@ export interface WorkspaceSnapshot {
   meetings?: WorkspaceMeetings;
   write_conflicts?: WorkspaceWriteConflicts;
   communications?: WorkspaceCommunications;
+  worktrees?: WorkspaceWorktrees;
   qa?: WorkspaceQaStatus;
   model?: WorkspaceModelSettings;
   layout?: {

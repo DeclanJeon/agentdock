@@ -121,7 +121,7 @@ function deriveRoleState(role: WorkspaceRole, snapshot: WorkspaceSnapshot, block
   const report = reportStateForRole(role, snapshot);
   if (report === 'report needed') return 'report-needed';
   if (report === 'reported' || role.status === 'reported' || role.status === 'ready') return 'reported';
-  if (role.status === 'working' || role.status === 'running') return 'working';
+  if (role.status === 'working' || role.status === 'running' || role.status === 'reviewing') return 'working';
   if (role.status === 'assigned' || role.selected) return 'assigned';
   return 'unknown';
 }

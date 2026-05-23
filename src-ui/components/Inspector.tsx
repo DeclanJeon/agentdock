@@ -26,6 +26,7 @@ export function Inspector({ snapshot, role }: { snapshot: WorkspaceSnapshot; rol
         <dt>이유</dt><dd>{role.status_reason ?? '이유가 아직 없습니다.'}</dd>
         <dt>분야</dt><dd>{role.department ?? 'General'}</dd>
         <dt>작업</dt><dd>{role.task_path || '작업 경로 없음'}</dd>
+        <dt>Worktree</dt><dd>{role.worktree?.branch ? `${role.worktree.branch} · ${role.worktree.path ?? '경로 없음'}` : '프로젝트 루트'}</dd>
         <dt>보고</dt><dd>{role.latest_report_path || '현재 보고 없음'}</dd>
         <dt>실행</dt><dd>{role.running_pane ? role.pane_id || '실행 중' : '대기'}</dd>
       </dl>

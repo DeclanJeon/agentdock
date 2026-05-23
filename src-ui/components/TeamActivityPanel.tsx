@@ -34,7 +34,13 @@ export function TeamActivityPanel({ snapshot, selectedRoleId, onSelectRole }: { 
                     <strong>{role.display_name ?? role.id}</strong>
                     <span>{blocked ? '블로커 있음' : statusLabel(role.status)}</span>
                   </div>
-                  <p>{roleActivityLabel(role, snapshot)}</p>
+                  <p>{role.live_status?.summary || roleActivityLabel(role, snapshot)}</p>
+                  {typeof role.live_status?.progress === 'number' ? (
+                    <small>진행률 {role.live_status.progress}% · {role.live_status.updated_at ?? '방금 업데이트'}</small>
+                  ) : null}
+                  {role.worktree?.branch ? (
+                    <small>작업공간 {role.worktree.branch}{role.worktree.exists === false ? ' · 경로 없음' : ''}</small>
+                  ) : null}
                   {dependency ? <p className="role-dependency-note">대기: {dependency.waiting_on} · {dependency.reason ?? '의존성 대기'}</p> : null}
                   <small>{nextActionForRole(role.id, report, blocked ? 'blocked' : role.status)}</small>
                 </button>

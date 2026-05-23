@@ -17,7 +17,7 @@
 <p align="center">
   <a href="https://github.com/DeclanJeon/agentdock/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/DeclanJeon/agentdock/ci.yml?branch=main&label=ci&logo=github"></a>
   <a href="https://github.com/DeclanJeon/agentdock/releases"><img alt="Release" src="https://img.shields.io/github/v/release/DeclanJeon/agentdock?label=release&logo=github"></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.0-0f766e">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.1-0f766e">
   <img alt="Runtime" src="https://img.shields.io/badge/runtime-Hermes%20Agent-111827">
   <img alt="Shell" src="https://img.shields.io/badge/shell-Bash-4EAA25?logo=gnubash&logoColor=white">
   <img alt="tmux" src="https://img.shields.io/badge/orchestration-tmux-1f2937">
@@ -58,6 +58,13 @@ AgentDock intentionally keeps Codex, OpenCode, Gemini, Claude, and other CLIs ou
 | Local-first state | Bash, tmux, Hermes Agent, and project files. No daemon, hosted scheduler, or remote control plane. |
 | Safer project isolation | New projects use a root-hash tmux session name, reducing collisions between directories with the same basename. |
 | Release/version guard | `scripts/check-version.sh` keeps `VERSION`, README, smoke tests, and release tags synchronized. |
+
+## What's New In 0.3.1
+
+- Added live role status files and `agentdock status set/show` so the Visual Office can show what each selected role is doing without expensive report scans.
+- Added faster Visual Office job creation with `--fast-return` background kickoff, short snapshot caching, workspace performance metrics, and a lighter desktop watcher scan.
+- Added optional per-role git worktree management with status, merge preview/apply, snapshot visibility, and UI surfacing.
+- Added source-tree update and safe uninstall commands, plus regression tests for status, worktree, cache, and orchestration contracts.
 
 ## What's New In 0.3.0
 
@@ -235,8 +242,11 @@ adock roles list
 | `adock help` | Print the command help. |
 | `adock doctor [--json]` | Detect system tools, Hermes, adapters, and project initialization state. |
 | `adock setup [--cli hermes] [--yes]` | Install or guide missing runtime dependencies. Runtime roles are Hermes-only. |
-| `adock update` | Print safe update guidance. |
-| `adock uninstall` | Print safe uninstall guidance. Project `.agentdock` and `.agent-work` are never deleted by this command. |
+| `adock update [--check|--yes]` | Check or run a source-tree based AgentDock update. |
+| `adock uninstall [--yes]` | Remove installed AgentDock binaries/share files only. Project `.agentdock` and `.agent-work` are never deleted. |
+| `adock status set --role <id> --state <state> --summary "..."` | Publish lightweight live role status for the Visual Office. |
+| `adock worktree init\|create\|list\|status\|merge\|remove` | Manage optional per-role git worktrees under `.agent-work/16_WORKTREES`. |
+| `adock workspace perf --json` | Measure workspace snapshot latency and coordination-file counts. |
 
 ### Project Setup
 
@@ -411,19 +421,19 @@ bash scripts/check-version.sh
 Create a release:
 
 ```bash
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.3.1
+git push origin v0.3.1
 ```
 
 Release artifacts include `SHA256SUMS` so users can verify downloaded archives before installing.
 
 ## Status
 
-Version `0.3.0` is the current local release. It is intentionally Bash-first and conservative: no daemon, no hosted control plane, no hidden remote scheduler.
+Version `0.3.1` is the current local release. It is intentionally Bash-first and conservative: no daemon, no hosted control plane, no hidden remote scheduler.
 
 Current gaps:
 
-- Worktree mode is configured but not implemented.
+- Worktree mode now has local init/create/list/status/merge/remove commands; fully automated conflict resolution remains intentionally manual.
 - Real Hermes authentication remains the user's responsibility.
-- `update` and `uninstall` print safe guidance instead of managing hosted releases.
+- `update` supports git source-tree updates; hosted binary release updates are still intentionally out of scope.
 - Adapter install commands are trusted local configuration, must match AgentDock's allowlisted install patterns, and should only be added from sources you control.
