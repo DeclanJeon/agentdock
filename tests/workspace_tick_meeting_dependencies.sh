@@ -67,7 +67,7 @@ AGENT_reviewer_WINDOW=agents
 AGENT_reviewer_CWD_MODE=project_root
 EOF_RUNTIME
 
-env PATH="$fakebin:$PATH" ./bin/agentdock job --no-attach --project "$project" "React UI와 Tauri bridge를 구현하고 테스트까지 진행해줘" >/dev/null
+env PATH="$fakebin:$PATH" ./bin/agentdock job --no-attach --project "$project" "CLI 작업 흐름과 QA 게이트를 구현하고 테스트까지 진행해줘" >/dev/null
 job="$(sed -n 's/^Active job: //p' "$project/.agent-work/07_JOBS/CURRENT.md" | xargs dirname)"
 [[ -f "$job/DEPENDENCIES.json" ]] || fail "DEPENDENCIES.json missing"
 grep -q '| developer | configured role | reuse |' "$job/TEAM.md" || fail "developer reuse row missing"
@@ -76,12 +76,12 @@ grep -q '| qa-specialist | configured role | reuse |' "$job/TEAM.md" || fail "qa
 cat >> "$job/TASKS/developer.md" <<'MD'
 
 ## Shared files
-- src-ui/App.tsx
+- bin/agentdock
 MD
 cat >> "$job/TASKS/qa-specialist.md" <<'MD'
 
 ## Shared files
-- src-ui/App.tsx
+- bin/agentdock
 MD
 
 env PATH="$fakebin:$PATH" ./bin/agentdock job report --from developer --summary "Implementation started; blocked by qa-specialist for test criteria." --project "$project" >/dev/null
@@ -93,19 +93,19 @@ items=snap.get('dependencies',{}).get('items',[])
 assert any(i.get('role') == 'developer' and i.get('waiting_on') == 'qa-specialist' for i in items), items
 assert any(a.get('type') == 'dependency' for a in snap.get('alerts', [])), snap.get('alerts')
 conflicts=snap.get('write_conflicts',{}).get('items',[])
-assert any(c.get('file') == 'src-ui/App.tsx' for c in conflicts), conflicts
+assert any(c.get('file') == 'bin/agentdock' for c in conflicts), conflicts
 assert any(a.get('type') == 'write_conflict' for a in snap.get('alerts', [])), snap.get('alerts')
 assert snap.get('communications',{}).get('items'), snap.get('communications')
 PY
 
-env PATH="$fakebin:$PATH" ./bin/agentdock job meeting start --title "Bridge Contract" --reason tradeoff --proposals "Use event bridge;Use polling" --project "$project" >/dev/null
-env PATH="$fakebin:$PATH" ./bin/agentdock job meeting conclude --title "Bridge Contract" --decision "Use event bridge with snapshot fallback" --rejected "Polling-only UI" --actions "Developer implements bridge;QA verifies" --project "$project" >/dev/null
+env PATH="$fakebin:$PATH" ./bin/agentdock job meeting start --title "CLI Contract" --reason tradeoff --proposals "Use task cards;Use ad-hoc chat" --project "$project" >/dev/null
+env PATH="$fakebin:$PATH" ./bin/agentdock job meeting conclude --title "CLI Contract" --decision "Use task cards with report fallback" --rejected "Ad-hoc chat only" --actions "Developer updates CLI;QA verifies" --project "$project" >/dev/null
 env PATH="$fakebin:$PATH" ./bin/agentdock workspace snapshot --json --project "$project" > "$TMP/snapshot2.json"
 python3 - <<PY
 import json
 snap=json.load(open('$TMP/snapshot2.json'))
 meetings=snap.get('meetings',{}).get('items',[])
-assert any(m.get('title') == 'Bridge Contract' and m.get('status') == 'concluded' and 'event bridge' in m.get('decision','') for m in meetings), meetings
+assert any(m.get('title') == 'CLI Contract' and m.get('status') == 'concluded' and 'task cards' in m.get('decision','') for m in meetings), meetings
 PY
 
 env PATH="$fakebin:$PATH" ./bin/agentdock job tick --json --project "$project" > "$TMP/tick.json"

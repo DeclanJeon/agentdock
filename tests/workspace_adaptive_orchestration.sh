@@ -93,7 +93,7 @@ PY
 
 project="$TMP/team"
 make_project "$project"
-env PATH="$fakebin:$PATH" ./bin/agentdock job --no-attach --project "$project" "React UI와 Tauri bridge를 구현하고 테스트까지 진행해줘" >/dev/null
+env PATH="$fakebin:$PATH" ./bin/agentdock job --no-attach --project "$project" "CLI 작업 흐름과 QA 게이트를 구현하고 테스트까지 진행해줘" >/dev/null
 job="$(job_dir_for "$project")"
 python3 - <<PY
 import json, pathlib

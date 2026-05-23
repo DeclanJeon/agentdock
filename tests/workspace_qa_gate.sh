@@ -53,7 +53,7 @@ AGENT_qa_specialist_WINDOW=agents
 AGENT_qa_specialist_CWD_MODE=project_root
 EOF_RUNTIME
 
-env PATH="$fakebin:$PATH" ./bin/agentdock job --no-attach --project "$project" "React UI와 Tauri bridge를 구현하고 테스트까지 진행해줘" >/dev/null
+env PATH="$fakebin:$PATH" ./bin/agentdock job --no-attach --project "$project" "CLI 작업 흐름과 QA 게이트를 구현하고 테스트까지 진행해줘" >/dev/null
 if env PATH="$fakebin:$PATH" ./bin/agentdock job finish --summary done --project "$project" >"$TMP/finish.out" 2>"$TMP/finish.err"; then
   fail "finish should be blocked by QA gate"
 fi

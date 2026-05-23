@@ -55,13 +55,9 @@ install_hermes_if_missing() {
   fi
 }
 
-mkdir -p "$BIN_DIR" "$SHARE_DIR/bin" "$SHARE_DIR/adapters" "$SHARE_DIR/roles/bmad" "$SHARE_DIR/roles/agentdock" "$SHARE_DIR/assets"
+mkdir -p "$BIN_DIR" "$SHARE_DIR/bin" "$SHARE_DIR/adapters" "$SHARE_DIR/roles/bmad" "$SHARE_DIR/roles/agentdock" 
 cp "$ROOT/bin/agentdock" "$SHARE_DIR/bin/agentdock"
 cp "$ROOT/adapters/"*.conf "$SHARE_DIR/adapters/"
-if [[ -d "$ROOT/assets/workspace-characters" ]]; then
-  rm -rf "$SHARE_DIR/assets/workspace-characters"
-  cp -R "$ROOT/assets/workspace-characters" "$SHARE_DIR/assets/workspace-characters"
-fi
 if compgen -G "$ROOT/roles/bmad/*.md" >/dev/null; then
   cp "$ROOT/roles/bmad/"*.md "$SHARE_DIR/roles/bmad/"
 fi

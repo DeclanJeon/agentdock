@@ -36,7 +36,7 @@ jobs:
         run: |
           pkg="agentdock-${GITHUB_REF_NAME}"
           mkdir -p "dist/${pkg}"
-          cp -R README.md VERSION install.sh bin adapters assets tests scripts "dist/${pkg}/"
+          cp -R README.md VERSION install.sh bin adapters tests scripts "dist/${pkg}/"
           tar -C dist -czf "dist/${pkg}.tar.gz" "${pkg}"
           (cd dist && zip -qr "${pkg}.zip" "${pkg}")
           (cd dist && sha256sum "${pkg}.tar.gz" "${pkg}.zip" > SHA256SUMS)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate Visual Workspace snapshot fixtures used by the React/Tauri UI contract.
+"""Validate CLI workspace snapshot fixtures.
 
 This intentionally validates the stable, read-only snapshot-to-UI contract only.
 It must not shell out, mutate .agent-work, or depend on a live AgentDock job.
@@ -79,7 +79,7 @@ def validate_fixture(path: Path) -> dict:
     if data["commands"]["write_bridge_enabled"] is not False:
         fail(path, "write_bridge_enabled must be false")
     # `agentdock report --fast` is a read-only status command in the current CLI.
-    # Reject only mutation/action surfaces that would let the desktop app change AgentDock state.
+    # Reject only mutation/action surfaces that would let CLI diagnostics change AgentDock state.
     for forbidden in (" job finish", " job report", " report --from", " inbox send", " send", " recruit", " edit", " exec"):
         if any(forbidden in f" {cmd} " for cmd in data["commands"].get("allowed_read_commands", [])):
             fail(path, f"forbidden write/action command advertised: {forbidden.strip()}")

@@ -5,7 +5,7 @@
       "type": "release_gate",
       "role": "agentdock-qa",
       "message": "Native screenshot evidence missing; releaseProof remains false.",
-      "next_action": "Capture native Tauri screenshot pack and rerun QA."
+      "next_action": "Submit the missing QA evidence and rerun finalization."
     }
   ],
   "commands": {
@@ -22,7 +22,7 @@
   "generated_at": "2026-05-22T00:10:00Z",
   "job": {
     "final_ready": false,
-    "final_ready_reason": "Blocked by QA release gate: native screenshot evidence missing",
+    "final_ready_reason": "Blocked by QA release gate: QA evidence missing",
     "id": "JOB-FIXTURE-BLOCKER_PRESENT",
     "lifecycle": "verifying",
     "lifecycle_status": "verifying",

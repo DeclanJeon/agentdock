@@ -70,10 +70,10 @@ export PATH="$FAKE:$PATH"
 export XDG_CONFIG_HOME="$TMP/config"
 export AGENTDOCK_ADAPTER_VERSION_TIMEOUT="1s"
 tmux kill-session -t project-agents 2>/dev/null || true
-"$ROOT/bin/agentdock" version | grep -q 'agentdock 0.3.1'
+"$ROOT/bin/agentdock" version | grep -q 'agentdock 0.3.2'
 ln -sf "$ROOT/bin/agentdock" "$FAKE/adock"
 ln -sf "$ROOT/bin/agentdock" "$FAKE/adock-delegate"
-adock version | grep -q 'agentdock 0.3.1'
+adock version | grep -q 'agentdock 0.3.2'
 
 MISS="$TMP/missing-hermes"
 mkdir -p "$MISS/fakebin" "$MISS/project"
@@ -349,14 +349,14 @@ grep -q '"logical_node"' "$TMP/workspace-state.json"
 grep -q '"manager_chain"' "$TMP/workspace-state.json"
 "$ROOT/bin/agentdock" workspace export --out .agent-work/11_ARCHIVE/workspace.html
 test -s .agent-work/11_ARCHIVE/workspace.html
-grep -q 'AgentDock Visual Office' .agent-work/11_ARCHIVE/workspace.html
-grep -q 'Read-only observer' .agent-work/11_ARCHIVE/workspace.html
+grep -q 'AgentDock Workspace Export' .agent-work/11_ARCHIVE/workspace.html
+grep -q 'CLI-only read-only snapshot' .agent-work/11_ARCHIVE/workspace.html
 grep -q 'Final readiness' .agent-work/11_ARCHIVE/workspace.html
 grep -q 'Reports' .agent-work/11_ARCHIVE/workspace.html
-grep -q 'Product Bay' .agent-work/11_ARCHIVE/workspace.html
-grep -q 'Engineering Bay' .agent-work/11_ARCHIVE/workspace.html
-grep -q 'Blocker Desk' .agent-work/11_ARCHIVE/workspace.html
-grep -q 'Report Desk' .agent-work/11_ARCHIVE/workspace.html
+grep -q 'Product' .agent-work/11_ARCHIVE/workspace.html
+grep -q 'Engineering' .agent-work/11_ARCHIVE/workspace.html
+grep -q 'Blockers and warnings' .agent-work/11_ARCHIVE/workspace.html
+grep -q 'Reports' .agent-work/11_ARCHIVE/workspace.html
 grep -q 'Status reason' .agent-work/11_ARCHIVE/workspace.html
 coordination_checksum > "$TMP/workspace-after.cksum"
 cmp "$TMP/workspace-before.cksum" "$TMP/workspace-after.cksum"
