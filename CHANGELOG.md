@@ -10,7 +10,8 @@ All notable AgentDock updates are recorded here by release version.
 - Added post-finish direct intake: live coordinator Hermes panes route new direct user work through `agentdock intake` / `adock-delegate`, reusing adaptive solo/team classification without native subagents.
 - Split active and historical job pointers: `CURRENT.md` now represents unfinished active work, `LAST_FINISHED.md` records the most recent completed job, and default job commands reject completed/failed/cancelled CURRENT pointers.
 - Hardened read-only workspace diagnostics so snapshot/export do not clean stale pane mappings as a side effect; write-intent paths still clean stale tmux pane state.
-- Updated workspace export regression expectations for the CLI-only static HTML report and added post-finish direct intake coverage.
+- Added code-level auto tmux team formation for team-classified `adock job` and `agentdock intake` flows: selected missing workers are now started through the same `agentdock recruit`/tmux/Hermes path before task messages are sent.
+- Updated workspace export regression expectations for the CLI-only static HTML report and added post-finish direct intake plus auto tmux team coverage.
 
 ## 0.3.1 - 2026-05-23
 

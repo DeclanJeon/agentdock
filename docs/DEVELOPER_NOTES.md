@@ -1,12 +1,12 @@
 # AgentDock Developer Notes (v0.3.2)
 
-> Generated: 2026-05-24 | Source analysis of `bin/agentdock` (5891 lines, pure Bash 4+)
+> Generated: 2026-05-24 | Source analysis of `bin/agentdock` (5959 lines, pure Bash 4+)
 
 ---
 
 ## 1. Architecture Overview
 
-AgentDock is a **terminal-first multi-agent orchestrator** built as a single 5891-line Bash script. There is no desktop app, no bundled UI runtime, and no browser-like control surface. The only runtime agent is **Hermes Agent** — other CLI adapters (Codex, Claude, Gemini, OpenCode) are registered in `adapters/*.conf` but the actual runtime enforces Hermes-only.
+AgentDock is a **terminal-first multi-agent orchestrator** built as a single 5959-line Bash script. There is no desktop app, no bundled UI runtime, and no browser-like control surface. The only runtime agent is **Hermes Agent** — other CLI adapters (Codex, Claude, Gemini, OpenCode) are registered in `adapters/*.conf` but the actual runtime enforces Hermes-only.
 
 ### Core Design Principle
 
@@ -22,7 +22,7 @@ The CEO decides the smallest useful team shape using **adaptive orchestration** 
 
 ```
 agentdock/
-  bin/agentdock           ← 5891-line Bash CLI (the entire runtime)
+  bin/agentdock           ← 5959-line Bash CLI (the entire runtime)
   adapters/               ← *.conf files for AI CLI detection (hermes, codex, claude, gemini, opencode)
   roles/
     bmad/                 ← BMAD Method role templates (Analyst, PM, Architect, Dev, UX, Tech Writer)
@@ -138,16 +138,17 @@ Valid states: `idle | assigned | working | blocked | reviewing | reported | offl
       - Regex-based intent detection (Korean + English keywords)
       - Mode classification: solo_direct | assisted_single_lane | standard_team | critical_review
       - Complexity/Risk/TeamCap determined from intents
-   c. select_job_worker_roles(): Matches intents to configured role names
+   c. select_job_worker_roles(): Matches intents to configured role names, then fills gaps with small default role IDs such as developer/qa/security-reviewer within team_cap
    d. Writes README.md, TEAM.md, LIFECYCLE.md, ORCHESTRATION.json
    e. Writes task cards under TASKS/<role>.md
    f. Sets CURRENT.md → points to job README
    g. If tmux session running: sends inbox message to CEO
       If not: starts session (bootstrap-only), then sends message
-   h. Sends task assignments to selected workers
+   h. auto_start_job_workers(): reuses running selected workers and starts missing selected workers through the same `agentdock recruit`/tmux path
+   i. Sends task assignments to selected workers
 3. CEO Hermes role:
    a. Reads boot prompt + task card
-   b. Inspects team, recruits missing roles
+   b. Coordinates already-started tmux-backed workers and may refine/recruit only if a concrete capability gap remains
    c. Assigns refined task cards
    d. Collects role reports
    e. Runs: adock job finish --summary "..."
@@ -188,14 +189,18 @@ ELSE                                    → solo_direct     (team_cap=1)
 
 ### 4.3 Worker Role Selection (select_job_worker_roles)
 
-Pattern-matches intent keywords against configured role names:
-- security → security*, review*, architect*, cto*
-- qa → qa*, test*, review*, quality*
-- ui/ux → ui*, ux*, design*, frontend*, developer*, engineer*
-- backend/devops → developer*, engineer*, architect*, cto*, devops*
-- docs → writer*, doc*, review*
+Pattern-matches intent keywords against configured role names first, then adds a capped fallback role list when a team-classified request has no suitable configured worker. This lets a default CEO-only project still create a real tmux team instead of relying on Hermes native/internal subagents:
+- security → security*, review*, architect*, cto*; fallback `security-reviewer`
+- qa → qa*, test*, review*, quality*; fallback `qa`
+- ui/ux → ui*, ux*, design*, frontend*, developer*, engineer*; fallback `frontend-developer`
+- backend/devops → developer*, engineer*, architect*, cto*, devops*; fallback `developer`
+- docs → writer*, doc*, review*; fallback `tech-writer`
 
-### 4.4 tmux Session Management
+### 4.4 Automatic tmux Team Startup (auto_start_job_workers)
+
+After the active job and coordinator message are created, AgentDock starts every selected non-coordinator worker through `recruit_role()` when no live pane is recorded in `.agentdock/state/panes.env`. This path uses `tmux new-window`/`tmux split-window`, launches `hermes`, writes pane state, boots the role prompt, logs `Auto-started tmux/Hermes role panes` to `LIFECYCLE.md`, then sends the role task message. Already-running selected workers are reused.
+
+### 4.5 tmux Session Management
 
 **Session naming**: `project_name-crc32hash-agents` (sanitized, max 80 chars)
 
@@ -416,6 +421,7 @@ Tests are shell scripts under `tests/`:
 
 | Test File | Coverage |
 |---|---|
+| `auto_tmux_team.sh` | Team-classified job/intake auto-start selected workers as tmux/Hermes panes |
 | `smoke.sh` | Basic CLI smoke (version, help, doctor output) |
 | `post_finish_direct_intake.sh` | Post-finish direct intake, CURRENT/LAST_FINISHED semantics |
 | `workspace_p05.sh` | P0.5 percentile latency target |
@@ -443,7 +449,7 @@ Tests are shell scripts under `tests/`:
 
 ## 6. Key Design Decisions
 
-1. **Single Bash script** — 5891 lines, no external runtime dependencies beyond tmux + hermes + git + python3. Maximum portability.
+1. **Single Bash script** — 5959 lines, no external runtime dependencies beyond tmux + hermes + git + python3. Maximum portability.
 2. **Filesystem as coordination bus** — No message queue, no database. Everything is markdown/JSON files under `.agent-work/`.
 3. **Hermes-only runtime** — Despite adapter registry for 5 CLIs, workers are strictly Hermes. This prevents fragmentation.
 4. **Content-hash boot caching** — Boot prompts regenerate only when content changes, saving startup time.

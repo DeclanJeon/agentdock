@@ -12,7 +12,7 @@
   <img alt="Runtime" src="https://img.shields.io/badge/runtime-Hermes%20Agent-111827">
   <img alt="Shell" src="https://img.shields.io/badge/shell-Bash%204%2B-4EAA25?logo=gnubash&logoColor=white">
   <img alt="tmux" src="https://img.shields.io/badge/orchestration-tmux-1f2937">
-  <img alt="Lines" src="https://img.shields.io/badge/code-5891%20lines%20Bash-333">
+  <img alt="Lines" src="https://img.shields.io/badge/code-5959%20lines%20Bash-333">
 </p>
 
 ---
@@ -23,13 +23,13 @@ Status: Version `0.3.2` is the current CLI-only Hermes/tmux release.
 
 AgentDock는 프로젝트 디렉토리를 **로컬 멀티에이전트 작업실**로 변환합니다. 데스크톱 앱이나 브라우저 UI 없이, 순수 터미널 CLI와 tmux만으로 작동합니다.
 
-핵심 아이디어: 하나의 명령어로 CEO 에이전트가 작업을 분류하고, 필요할 때만 최소한의 팀을 구성하여 작업을 실행합니다.
+핵심 아이디어: 하나의 명령어로 CEO 에이전트가 작업을 분류하고, 필요할 때만 최소한의 tmux/Hermes 팀을 코드 레벨에서 구성하여 작업을 실행합니다.
 
 ```bash
 adock job "작업내용"
 ```
 
-작업이 끝난 뒤에도 CEO Hermes tmux pane은 살아있습니다. 그 pane에 사용자가 새 작업을 직접 주면, AgentDock는 `agentdock intake` 경로로 다시 접수하여 기존 `adock job`과 같은 solo/team 분류 로직을 사용합니다. 팀이 필요하면 Hermes 내부 subagent가 아니라 `agentdock recruit`로 tmux 역할을 구성합니다.
+작업이 끝난 뒤에도 CEO Hermes tmux pane은 살아있습니다. 그 pane에 사용자가 새 작업을 직접 주면, AgentDock는 `agentdock intake` 경로로 다시 접수하여 기존 `adock job`과 같은 solo/team 분류 로직을 사용합니다. 팀이 필요하면 Hermes 내부 subagent가 아니라 `agentdock recruit` 경로로 실제 tmux 역할 pane을 자동 생성하거나 재사용합니다.
 
 ---
 
@@ -255,9 +255,10 @@ planning → recruiting → executing → verifying → complete
 
 ## 🧪 테스트 (Tests)
 
-14개 셸 기반 통합 테스트 + 50개 이상의 JSON 픽스처:
+15개 셸 기반 통합 테스트 + 50개 이상의 JSON 픽스처:
 
 ```bash
+bash tests/auto_tmux_team.sh                  # 팀 작업 시 tmux/Hermes worker 자동 생성
 bash tests/smoke.sh                           # 기본 CLI 정상작동
 bash tests/workspace_adaptive_orchestration.sh # 적응형 분류 검증
 bash tests/post_finish_direct_intake.sh         # 완료 후 direct Hermes intake 검증
@@ -298,7 +299,7 @@ git push origin v0.3.2
 
 | 구성요소 | 기술 |
 |---|---|
-| 언어 | **Bash 4.0+** (순수 셸, 5891 lines) |
+| 언어 | **Bash 4.0+** (순수 셸, 5959 lines) |
 | 프로세스 관리 | **tmux** (pane 단위 에이전트 수명주기) |
 | AI 런타임 | **Hermes Agent** (유일한 워커 CLI) |
 | 조정 버스 | **파일시스템** (마크다운 + JSON) |
@@ -315,7 +316,7 @@ git push origin v0.3.2
 - 🏗️ 작업공간 HTML 익스포트를 경량 CLI 진단으로 대체
 - 🔁 완료 후 살아있는 CEO Hermes pane direct request를 `agentdock intake`로 재접수
 - 🧭 `CURRENT.md`는 미완료 작업 전용, `LAST_FINISHED.md`는 최근 완료 작업 기록으로 분리
-- 🧪 post-finish direct intake 회귀 테스트 추가
+- 🧪 post-finish direct intake 및 auto tmux team formation 회귀 테스트 추가
 
 ---
 

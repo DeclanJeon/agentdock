@@ -61,6 +61,14 @@ grep -qi 'QA gate is required' "$TMP/finish.err" || fail "missing QA gate error"
 
 env PATH="$fakebin:$PATH" ./bin/agentdock job report --from qa-specialist --summary "QA passed. Tests passed." --project "$project" >/dev/null
 grep -q '^Status: passed$' "$(sed -n 's/^Active job: //p' "$project/.agent-work/07_JOBS/CURRENT.md" | xargs dirname)/QA.md" || fail "QA status not passed"
+job="$(sed -n 's/^Active job: //p' "$project/.agent-work/07_JOBS/CURRENT.md" | xargs dirname)"
+for task in "$job"/TASKS/*.md; do
+  role="$(basename "$task" .md)"
+  case "$role" in
+    orchestrator|qa-specialist) continue ;;
+  esac
+  env PATH="$fakebin:$PATH" ./bin/agentdock job report --from "$role" --summary "Summary: completed assigned lane; Tests run: fake qa gate regression; Blockers: none; Handoff needs: none" --project "$project" >/dev/null
+done
 env PATH="$fakebin:$PATH" ./bin/agentdock job finish --summary done --project "$project" >/dev/null
 
 echo "workspace qa gate ok"

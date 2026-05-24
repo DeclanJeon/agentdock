@@ -680,6 +680,37 @@ select_job_worker_roles() {
     (( count >= cap )) && break
     [[ "$mode" == "assisted_single_lane" ]] && break
   done
+  if (( count < cap )); then
+    local fallback_roles="" selected_id has_security=false has_qa=false has_ui=false has_dev=false has_docs=false
+    for selected_id in $selected; do
+      [[ "$selected_id" == *security* || "$selected_id" == *review* || "$selected_id" == *architect* || "$selected_id" == *cto* ]] && has_security=true
+      [[ "$selected_id" == *qa* || "$selected_id" == *test* || "$selected_id" == *quality* || "$selected_id" == *review* ]] && has_qa=true
+      [[ "$selected_id" == *ui* || "$selected_id" == *ux* || "$selected_id" == *design* || "$selected_id" == *frontend* ]] && has_ui=true
+      [[ "$selected_id" == *developer* || "$selected_id" == *engineer* || "$selected_id" == *architect* || "$selected_id" == *cto* || "$selected_id" == *devops* ]] && has_dev=true
+      [[ "$selected_id" == *writer* || "$selected_id" == *doc* ]] && has_docs=true
+    done
+    if [[ "$requires_security" == "true" && "$has_security" == false ]]; then fallback_roles="$fallback_roles security-reviewer"; fi
+    if printf '%s' "$intents" | grep -Eiq 'ui|ux'; then
+      [[ "$has_ui" == true || "$has_dev" == true ]] || fallback_roles="$fallback_roles frontend-developer"
+    fi
+    if printf '%s' "$intents" | grep -Eiq 'backend|devops|architecture'; then
+      [[ "$has_dev" == true ]] || fallback_roles="$fallback_roles developer"
+    fi
+    if printf '%s' "$intents" | grep -Eiq 'docs'; then
+      [[ "$has_docs" == true ]] || fallback_roles="$fallback_roles tech-writer"
+    fi
+    if [[ "$requires_qa" == "true" && "$has_qa" == false ]]; then fallback_roles="$fallback_roles qa"; fi
+    if [[ -z "${fallback_roles// }" && "$mode" != "solo_direct" && "$count" -eq 0 ]]; then fallback_roles="developer"; fi
+    for id in $fallback_roles; do
+      [[ "$id" == "$coordinator" ]] && continue
+      case " $selected " in *" $id "*) continue ;; esac
+      selected="$selected $id"
+      printf '%s\n' "$id"
+      count=$((count + 1))
+      (( count >= cap )) && break
+      [[ "$mode" == "assisted_single_lane" ]] && break
+    done
+  fi
   return 0
 }
 
@@ -2462,6 +2493,42 @@ cmd_recruit() {
   boot_started_roles "$root" "$DEFAULT_AGENT_CLI" "${AGENTDOCK_LAUNCHED_PAIRS[@]}"
 }
 
+auto_start_job_workers() {
+  local root="$1" job="$2" workers="$3" worker pane mission instructions started="" reused=""
+  [[ -n "${workers// }" ]] || return 0
+  source_runtime "$root"
+  have tmux || return 0
+  tmux has-session -t "$SESSION_NAME" 2>/dev/null || return 0
+  AGENTDOCK_LAUNCHED_PAIRS=()
+  AGENTDOCK_DEFER_BOOT=1
+  AGENTDOCK_BATCH_RECRUIT=1
+  for worker in $workers; do
+    pane="$(cd "$root" && tmux_target_for_role "$worker" 1 "$root" || true)"
+    if [[ -n "$pane" ]]; then
+      reused="${reused:+$reused }$worker($pane)"
+      continue
+    fi
+    mission="$(role_task_mission "$worker")"
+    instructions="Auto-started for AgentDock job $job. Read $job/TASKS/$worker.md, execute only your assigned lane, and report with agentdock job report --from $worker --summary \"...\"."
+    recruit_role "$root" "$worker" "" "" "$mission" "$instructions" 0 "" "local" "" "$BMAD_DEFAULT_REF" >/dev/null
+    pane="$(cd "$root" && tmux_target_for_role "$worker" 0 "$root" || true)"
+    started="${started:+$started }$worker${pane:+($pane)}"
+  done
+  AGENTDOCK_BATCH_RECRUIT=0
+  regenerate_all "$root"
+  AGENTDOCK_DEFER_BOOT=0
+  boot_started_roles "$root" "$DEFAULT_AGENT_CLI" "${AGENTDOCK_LAUNCHED_PAIRS[@]}"
+  if [[ -n "$started" || -n "$reused" ]]; then
+    {
+      printf '\n- %s recruiting: Auto-started tmux/Hermes role panes for selected workers.' "$(report_timestamp)"
+      [[ -n "$started" ]] && printf ' Started: %s.' "$started"
+      [[ -n "$reused" ]] && printf ' Reused: %s.' "$reused"
+      printf '\n'
+    } >> "$job/LIFECYCLE.md"
+  fi
+  source_runtime "$root"
+}
+
 cmd_team() {
   local root id var status found version
   root="$(require_project "$@")"
@@ -3265,6 +3332,7 @@ EOF
     cmd_start --bootstrap-only --no-attach --project "$root"
     cmd_send "$role" "$msg" --project "$root" || true
   fi
+  auto_start_job_workers "$root" "$job" "$selected_workers"
   for worker in $selected_workers; do
     cmd_send "$worker" "New AgentDock job task: $job/TASKS/$worker.md. Execute your lane, coordinate blockers through reports/TFTs, and submit with agentdock job report --from $worker --summary \"...\"." --project "$root" || true
   done

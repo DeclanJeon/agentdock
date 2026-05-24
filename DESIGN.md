@@ -15,7 +15,8 @@ The CEO agent receives the job, decides whether the work should stay solo or nee
 ## Runtime Principles
 
 - Simple jobs should not spawn unnecessary teams.
-- Team members are real Hermes Agent sessions in tmux, not simulated UI agents.
+- Team members are real Hermes Agent sessions in tmux, not simulated UI agents or Hermes-native/internal subagents.
+- Team-classified jobs auto-start selected missing workers via the `agentdock recruit`/tmux path before task messages are sent.
 - Coordination state lives in `.agent-work` and remains inspectable/editable as plain files.
 - CLI diagnostics may summarize state, but must not become a second control plane.
 - Runtime model settings are stored in AgentDock config and can be applied to running Hermes panes.
