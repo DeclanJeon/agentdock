@@ -2384,7 +2384,7 @@ recruit_role() {
   fi
   [[ "$status" == installed ]] && cmd="$(launch_cmd_for_detected_cli "$cli" "$cmd" "$found")"
 
-  existing="$(tmux_target_for_role "$role" || true)"
+  existing="$(tmux_target_for_role "$role" 1 "$root" || true)"
   if [[ -n "$existing" ]] && tmux list-panes -a -F '#{pane_id}' | grep -Fxq "$existing"; then
     say "Role already running: $role ($existing)"
     return
@@ -2479,15 +2479,15 @@ cmd_team() {
 }
 
 tmux_target_for_role() {
-  local role="$1"
+  local role="$1" cleanup_stale="${2:-0}" root="${3:-$(pwd)}"
   local key="PANE_${role//-/_}"
   local pane
   pane="$(grep "^$key=" ".agentdock/state/panes.env" 2>/dev/null | sed 's/^[^=]*=//; s/"//g' | tail -1)"
   [[ -n "$pane" ]] || return 0
   if tmux list-panes -a -F '#{pane_id}' 2>/dev/null | grep -Fxq "$pane"; then
     printf '%s\n' "$pane"
-  else
-    pane_state_remove "$(pwd)" "$role" 2>/dev/null || true
+  elif [[ "$cleanup_stale" == 1 ]]; then
+    pane_state_remove "$root" "$role" 2>/dev/null || true
   fi
 }
 
@@ -2790,7 +2790,7 @@ write_team_snapshot() {
       var="AGENT_${id//-/_}"
       display="$(get_config_var "${var}_DISPLAY_NAME")"
       [[ -n "$display" ]] || display="$id"
-      pane="$(cd "$root" && tmux_target_for_role "$id" || true)"
+      pane="$(cd "$root" && tmux_target_for_role "$id" 1 "$root" || true)"
       if [[ -n "$pane" ]]; then
         status="running ($pane)"
       else
@@ -2892,7 +2892,7 @@ teardown_job_team() {
       kept_count=$((kept_count + 1))
       continue
     fi
-    pane="$(cd "$root" && tmux_target_for_role "$id" || true)"
+    pane="$(cd "$root" && tmux_target_for_role "$id" 1 "$root" || true)"
     if [[ -z "$pane" ]]; then
       continue
     fi
@@ -3301,7 +3301,7 @@ cmd_job_report() {
     job_dir="$job_arg"
     [[ "$job_dir" == /* ]] || job_dir="$root/${job_dir#./}"
   else
-    job_dir="$(current_job_dir "$root")" || die "no active job. Run: agentdock job \"...\""
+    job_dir="$(current_active_job_dir "$root")" || die "no active job. Run: agentdock job \"...\""
   fi
   [[ -d "$job_dir" ]] || die "job directory not found: $job_dir"
   source_runtime "$root"
@@ -3406,7 +3406,7 @@ cmd_job_finish() {
     job_dir="$job_arg"
     [[ "$job_dir" == /* ]] || job_dir="$root/${job_dir#./}"
   else
-    job_dir="$(current_job_dir "$root")" || die "no active job. Run: agentdock job \"...\""
+    job_dir="$(current_active_job_dir "$root")" || die "no active job. Run: agentdock job \"...\""
   fi
   [[ -d "$job_dir" ]] || die "job directory not found: $job_dir"
   source_runtime "$root"
@@ -3565,7 +3565,7 @@ cmd_job_tft() {
     esac
   done
   [[ -n "$file" ]] && summary="$(cat "$file")"
-  job_dir="$(current_job_dir "$root")" || die "no active job. Run: agentdock job \"...\""
+  job_dir="$(current_active_job_dir "$root")" || die "no active job. Run: agentdock job \"...\""
   [[ -d "$job_dir" ]] || die "job directory not found: $job_dir"
   mkdir -p "$job_dir/TFTS" "$job_dir/MEETINGS" "$job_dir/DECISIONS"
   stamp="$(report_timestamp)"
@@ -3651,7 +3651,7 @@ cmd_job_meeting() {
       *) if [[ -z "$title" ]]; then title="$1"; else decision="${decision:+$decision }$1"; fi; shift ;;
     esac
   done
-  job_dir="$(current_job_dir "$root")" || die "no active job. Run: agentdock job \"...\""
+  job_dir="$(current_active_job_dir "$root")" || die "no active job. Run: agentdock job \"...\""
   [[ -d "$job_dir" ]] || die "job directory not found: $job_dir"
   mkdir -p "$job_dir/MEETINGS" "$job_dir/DECISIONS"
   stamp="$(report_timestamp)"
@@ -3735,7 +3735,7 @@ cmd_job_tick() {
       *) shift ;;
     esac
   done
-  job_dir="$(current_job_dir "$root")" || die "no active job. Run: agentdock job \"...\""
+  job_dir="$(current_active_job_dir "$root")" || die "no active job. Run: agentdock job \"...\""
   source_runtime "$root"
   coordinator="$(orchestrator_role "$root")"
   mode="$(orchestration_field "$job_dir/ORCHESTRATION.json" mode legacy_controlled_actions)"
@@ -4370,7 +4370,7 @@ send_message_to_role() {
     printf 'Channel: agentdock-inbox\n\n'
     printf '## Body\n%s\n' "$message"
   } > "$inbox"
-  (cd "$root" && pane="$(tmux_target_for_role "$role" || true)"
+  (cd "$root" && pane="$(tmux_target_for_role "$role" 1 "$root" || true)"
     if [[ -n "$pane" && "$pane" != "${TMUX_PANE:-}" ]]; then
       tmux send-keys -t "$pane" "$message" C-m || true
     fi)
@@ -5571,7 +5571,7 @@ apply_hermes_model_to_running_roles() {
   [[ -n "$provider" ]] && command="$command --provider $provider"
   command="$command --global"
   for role in $AGENT_IDS; do
-    pane="$(cd "$root" && tmux_target_for_role "$role" || true)"
+    pane="$(cd "$root" && tmux_target_for_role "$role" 1 "$root" || true)"
     [[ -n "$pane" ]] || continue
     tmux send-keys -t "$pane" "$command" C-m || continue
     [[ "$first" == 1 ]] || applied_json="$applied_json, "

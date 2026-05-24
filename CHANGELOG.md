@@ -7,7 +7,10 @@ All notable AgentDock updates are recorded here by release version.
 - Removed the desktop application stack and all tracked React/Vite/Tauri source, native packaging, generated character assets, and UI-only tests.
 - Simplified installation and release packaging to CLI assets only: `bin`, adapters, roles, tests, scripts, README, VERSION, and install script.
 - Kept terminal-first orchestration through `adock job "..."`, CEO-led team selection, reports, QA gates, TFT/meeting records, runtime model settings, and worktree tools.
-- Converted workspace HTML export into a lightweight CLI diagnostic that embeds status JSON and uses no bundled visual assets.
+- Added post-finish direct intake: live coordinator Hermes panes route new direct user work through `agentdock intake` / `adock-delegate`, reusing adaptive solo/team classification without native subagents.
+- Split active and historical job pointers: `CURRENT.md` now represents unfinished active work, `LAST_FINISHED.md` records the most recent completed job, and default job commands reject completed/failed/cancelled CURRENT pointers.
+- Hardened read-only workspace diagnostics so snapshot/export do not clean stale pane mappings as a side effect; write-intent paths still clean stale tmux pane state.
+- Updated workspace export regression expectations for the CLI-only static HTML report and added post-finish direct intake coverage.
 
 ## 0.3.1 - 2026-05-23
 

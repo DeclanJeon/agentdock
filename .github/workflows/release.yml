@@ -27,16 +27,19 @@ jobs:
 
       - name: Verify
         run: |
-          bash -n bin/agentdock install.sh tests/smoke.sh tests/workspace_p05.sh scripts/check-version.sh
+          bash -n bin/agentdock install.sh scripts/check-version.sh tests/*.sh
           bash scripts/check-version.sh
-          bash tests/workspace_p05.sh
-          bash tests/smoke.sh
+          python3 tests/fixtures/workspace/validate_workspace_fixtures.py
+          for test_script in tests/*.sh; do
+            echo "RUN ${test_script}"
+            bash "${test_script}"
+          done
 
       - name: Package
         run: |
           pkg="agentdock-${GITHUB_REF_NAME}"
           mkdir -p "dist/${pkg}"
-          cp -R README.md VERSION install.sh bin adapters tests scripts "dist/${pkg}/"
+          cp -R README.md CHANGELOG.md DESIGN.md VERSION install.sh bin adapters tests scripts docs "dist/${pkg}/"
           tar -C dist -czf "dist/${pkg}.tar.gz" "${pkg}"
           (cd dist && zip -qr "${pkg}.zip" "${pkg}")
           (cd dist && sha256sum "${pkg}.tar.gz" "${pkg}.zip" > SHA256SUMS)

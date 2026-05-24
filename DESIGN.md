@@ -23,7 +23,7 @@ The CEO agent receives the job, decides whether the work should stay solo or nee
 
 ## Supported Surfaces
 
-- `adock job`, `job report`, `job finish`, `job tick`, `job tft`, `job meeting`
+- `adock job`, `agentdock intake`, `adock-delegate`, `job report`, `job finish`, `job tick`, `job tft`, `job meeting`
 - `adock recruit`, `send`, `broadcast`, `inbox`, `watch`, `team`
 - `adock workspace snapshot --json` and `workspace export --out <file>` as read-only CLI diagnostics
 - `adock workspace model ...` for Hermes model configuration

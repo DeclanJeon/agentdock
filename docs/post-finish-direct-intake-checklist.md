@@ -1,126 +1,126 @@
 # Post-Finish Direct Hermes Intake Checklist
 
 Generated: 2026-05-24
-Status: Proposed
+Status: Implemented
 Related design: `docs/post-finish-direct-intake-design.md`
 
 ## P0 - Correctness gates
 
-- [ ] Add active-job resolver helpers in `bin/agentdock`.
-  - [ ] `job_lifecycle_status <job_dir>` reads `LIFECYCLE.md` status safely.
-  - [ ] `job_is_active <job_dir>` returns false for `complete|completed|closed|finished`.
-  - [ ] `current_active_job_dir <root>` returns only unfinished current jobs.
-  - [ ] Existing raw `current_job_dir` remains for explicit historical operations.
+- [x] Add active-job resolver helpers in `bin/agentdock`.
+  - [x] `job_lifecycle_status <job_dir>` reads `LIFECYCLE.md` status safely.
+  - [x] `job_is_active <job_dir>` returns false for `complete|completed|closed|finished`.
+  - [x] `current_active_job_dir <root>` returns only unfinished current jobs.
+  - [x] Existing raw `current_job_dir` remains for explicit historical operations.
 
-- [ ] Update `cmd_job_finish` semantics.
-  - [ ] After a successful finish, write `.agent-work/07_JOBS/LAST_FINISHED.md`.
-  - [ ] Store at least job README path, final report path, finished timestamp, and summary if available.
-  - [ ] Remove `.agent-work/07_JOBS/CURRENT.md` or replace it with a non-active marker.
-  - [ ] Ensure `job finish --job <path>` still works for explicit job paths.
-  - [ ] Ensure final report still includes team teardown summary.
+- [x] Update `cmd_job_finish` semantics.
+  - [x] After a successful finish, write `.agent-work/07_JOBS/LAST_FINISHED.md`.
+  - [x] Store at least job README path, final report path, finished timestamp, and summary if available.
+  - [x] Remove `.agent-work/07_JOBS/CURRENT.md` or replace it with a non-active marker.
+  - [x] Ensure `job finish --job <path>` still works for explicit job paths.
+  - [x] Ensure final report still includes team teardown summary.
 
-- [ ] Add direct-intake command path.
-  - [ ] Add `agentdock intake --from <role> --request "..." [--project <path>]`.
-  - [ ] Add `--file` support for long requests.
-  - [ ] Validate `--from` role exists.
-  - [ ] If no unfinished active job exists, call the same `cmd_job_start --no-attach` path as `agentdock job`.
-  - [ ] Keep `adock-delegate` / `agentdock delegate` as compatibility aliases.
-  - [ ] Update `agentdock help` and `agentdock job help` if needed.
+- [x] Add direct-intake command path.
+  - [x] Add `agentdock intake --from <role> --request "..." [--project <path>]`.
+  - [x] Add `--file` support for long requests.
+  - [x] Validate `--from` role exists.
+  - [x] If no unfinished active job exists, call the same `cmd_job_start --no-attach` path as `agentdock job`.
+  - [x] Keep `adock-delegate` / `agentdock delegate` as compatibility aliases.
+  - [x] Update `agentdock help` and `agentdock job help` if needed.
 
-- [ ] Active unfinished job policy is explicit.
-  - [ ] If an unfinished active job exists, do not silently overwrite it for an unrelated direct request.
-  - [ ] Either route as an active-job message/follow-up or reject with a clear message requiring finish/queue/supersede.
-  - [ ] Completed `CURRENT.md` must be treated as no active job.
+- [x] Active unfinished job policy is explicit.
+  - [x] If an unfinished active job exists, do not silently overwrite it for an unrelated direct request.
+  - [x] Either route as an active-job message/follow-up or reject with a clear message requiring finish/queue/supersede.
+  - [x] Completed `CURRENT.md` must be treated as no active job.
 
-- [ ] Preserve adaptive orchestration behavior.
-  - [ ] `agentdock intake` writes `ORCHESTRATION.json` through `write_orchestration_json`.
-  - [ ] `solo_direct` creates no unnecessary worker team.
-  - [ ] `assisted_single_lane` uses at most one helper lane.
-  - [ ] `standard_team` selects/reuses configured roles and requires QA when applicable.
-  - [ ] `critical_review` keeps security/review/QA gates.
+- [x] Preserve adaptive orchestration behavior.
+  - [x] `agentdock intake` writes `ORCHESTRATION.json` through `write_orchestration_json`.
+  - [x] `solo_direct` creates no unnecessary worker team.
+  - [x] `assisted_single_lane` uses at most one helper lane.
+  - [x] `standard_team` selects/reuses configured roles and requires QA when applicable.
+  - [x] `critical_review` keeps security/review/QA gates.
 
-- [ ] Enforce tmux-backed team semantics.
-  - [ ] Coordinator prompt still says team means `agentdock recruit` tmux roles.
-  - [ ] Prompt explicitly forbids Hermes/Codex native subagents/internal team mode for AgentDock team formation.
-  - [ ] New direct-intake docs/task cards say the coordinator should not directly implement team-scope work before job classification.
+- [x] Enforce tmux-backed team semantics.
+  - [x] Coordinator prompt still says team means `agentdock recruit` tmux roles.
+  - [x] Prompt explicitly forbids Hermes/Codex native subagents/internal team mode for AgentDock team formation.
+  - [x] New direct-intake docs/task cards say the coordinator should not directly implement team-scope work before job classification.
 
 ## P1 - Prompt and lifecycle hygiene
 
-- [ ] Update generated coordinator prompt body.
-  - [ ] Replace `CURRENT.md exists => active job` with `CURRENT.md points to unfinished job => active job`.
-  - [ ] Add completed-current behavior: completed pointer means no active job; direct user work should call `agentdock intake`.
-  - [ ] Mention `LAST_FINISHED.md` as historical context only.
-  - [ ] Keep existing required reading paths.
+- [x] Update generated coordinator prompt body.
+  - [x] Replace `CURRENT.md exists => active job` with `CURRENT.md points to unfinished job => active job`.
+  - [x] Add completed-current behavior: completed pointer means no active job; direct user work should call `agentdock intake`.
+  - [x] Mention `LAST_FINISHED.md` as historical context only.
+  - [x] Keep existing required reading paths.
 
-- [ ] Update generated boot prompt body.
-  - [ ] First action uses active-job resolver semantics, not raw existence semantics.
-  - [ ] Direct request instruction names `agentdock intake` first and `adock-delegate` as compatibility.
-  - [ ] Preserve READY behavior when no active job and no user work is pending.
+- [x] Update generated boot prompt body.
+  - [x] First action uses active-job resolver semantics, not raw existence semantics.
+  - [x] Direct request instruction names `agentdock intake` first and `adock-delegate` as compatibility.
+  - [x] Preserve READY behavior when no active job and no user work is pending.
 
-- [ ] Update job README/task-card text generated by `cmd_job_start` if wording still implies raw `CURRENT.md` existence.
+- [x] Update job README/task-card text generated by `cmd_job_start` if wording still implies raw `CURRENT.md` existence.
 
-- [ ] Update docs.
-  - [ ] `docs/adaptive-orchestration-design.md` links to post-finish direct intake design.
-  - [ ] `docs/adaptive-orchestration-modes.md` notes direct intake shares mode classification with `agentdock job`.
-  - [ ] `docs/DEVELOPER_NOTES.md` core flow mentions `agentdock intake` / `adock-delegate` for direct pane work.
+- [x] Update docs.
+  - [x] `docs/adaptive-orchestration-design.md` links to post-finish direct intake design.
+  - [x] `docs/adaptive-orchestration-modes.md` notes direct intake shares mode classification with `agentdock job`.
+  - [x] `docs/DEVELOPER_NOTES.md` core flow mentions `agentdock intake` / `adock-delegate` for direct pane work.
 
 ## P1 - Pane-state hygiene
 
-- [ ] Add or harden stale pane validation.
-  - [ ] Before sending to a pane, confirm the pane id exists in live `tmux list-panes`.
-  - [ ] If pane id is stale, remove the role mapping from `.agentdock/state/panes.env`.
-  - [ ] Do not claim a message was delivered to tmux when only the inbox file was written.
-  - [ ] Allow subsequent `agentdock recruit <role>` to recreate the role pane.
+- [x] Add or harden stale pane validation.
+  - [x] Before sending to a pane, confirm the pane id exists in live `tmux list-panes`.
+  - [x] If pane id is stale, remove the role mapping from `.agentdock/state/panes.env`.
+  - [x] Do not claim a message was delivered to tmux when only the inbox file was written.
+  - [x] Allow subsequent `agentdock recruit <role>` to recreate the role pane.
 
-- [ ] Ensure coordinator survives finish.
-  - [ ] `job finish` still keeps coordinator pane active.
-  - [ ] Completed/reported worker panes still disband.
-  - [ ] Unfinished/unreported worker panes still stay active and are recorded in lifecycle.
+- [x] Ensure coordinator survives finish.
+  - [x] `job finish` still keeps coordinator pane active.
+  - [x] Completed/reported worker panes still disband.
+  - [x] Unfinished/unreported worker panes still stay active and are recorded in lifecycle.
 
 ## P0 - Tests
 
-- [ ] Add `tests/post_finish_direct_intake.sh` using fake `tmux` and fake `hermes`.
+- [x] Add `tests/post_finish_direct_intake.sh` using fake `tmux` and fake `hermes`.
 
-- [ ] Test: finish clears active current.
-  - [ ] Create temporary project.
-  - [ ] Start a `solo_direct` job.
-  - [ ] Finish it.
-  - [ ] Assert final report exists.
-  - [ ] Assert `LAST_FINISHED.md` exists.
-  - [ ] Assert `CURRENT.md` is absent or explicitly inactive.
+- [x] Test: finish clears active current.
+  - [x] Create temporary project.
+  - [x] Start a `solo_direct` job.
+  - [x] Finish it.
+  - [x] Assert final report exists.
+  - [x] Assert `LAST_FINISHED.md` exists.
+  - [x] Assert `CURRENT.md` is absent or explicitly inactive.
 
-- [ ] Test: completed current does not block new intake.
-  - [ ] Create a completed job fixture with `CURRENT.md` pointing to it.
-  - [ ] Run `agentdock intake --from orchestrator --request "문서 오타를 수정해줘"`.
-  - [ ] Assert a new job exists.
-  - [ ] Assert new job `ORCHESTRATION.json` mode is `solo_direct`.
-  - [ ] Assert `CURRENT.md` points to the new job, not the completed fixture.
+- [x] Test: completed current does not block new intake.
+  - [x] Create a completed job fixture with `CURRENT.md` pointing to it.
+  - [x] Run `agentdock intake --from orchestrator --request "문서 오타를 수정해줘"`.
+  - [x] Assert a new job exists.
+  - [x] Assert new job `ORCHESTRATION.json` mode is `solo_direct`.
+  - [x] Assert `CURRENT.md` points to the new job, not the completed fixture.
 
-- [ ] Test: intake uses standard team classification.
-  - [ ] Run `agentdock intake --from orchestrator --request "CLI 흐름과 QA 게이트를 구현하고 테스트해줘"`.
-  - [ ] Assert `mode == standard_team`.
-  - [ ] Assert `requires_qa == true`.
-  - [ ] Assert `QA.md` exists.
+- [x] Test: intake uses standard team classification.
+  - [x] Run `agentdock intake --from orchestrator --request "CLI 흐름과 QA 게이트를 구현하고 테스트해줘"`.
+  - [x] Assert `mode == standard_team`.
+  - [x] Assert `requires_qa == true`.
+  - [x] Assert `QA.md` exists.
 
-- [ ] Test: intake uses critical review classification.
-  - [ ] Run `agentdock intake --from orchestrator --request "권한과 토큰 보안 로직을 수정하고 검토해줘"`.
-  - [ ] Assert `mode == critical_review`.
-  - [ ] Assert `requires_security_review == true`.
+- [x] Test: intake uses critical review classification.
+  - [x] Run `agentdock intake --from orchestrator --request "권한과 토큰 보안 로직을 수정하고 검토해줘"`.
+  - [x] Assert `mode == critical_review`.
+  - [x] Assert `requires_security_review == true`.
 
-- [ ] Test: active unfinished job policy.
-  - [ ] Start a job and leave `LIFECYCLE.md Status: planning` or `executing`.
-  - [ ] Run `agentdock intake` for a new unrelated request.
-  - [ ] Assert behavior matches selected policy: clear refusal or active-job message, not silent overwrite.
+- [x] Test: active unfinished job policy.
+  - [x] Start a job and leave `LIFECYCLE.md Status: planning` or `executing`.
+  - [x] Run `agentdock intake` for a new unrelated request.
+  - [x] Assert behavior matches selected policy: clear refusal or active-job message, not silent overwrite.
 
-- [ ] Test: boot prompt contains required language.
-  - [ ] Generate boot prompt for coordinator.
-  - [ ] Assert it mentions unfinished active job, direct intake, `agentdock recruit`, and forbids native subagents/internal team mode.
-  - [ ] Assert it does not rely only on raw `CURRENT.md exists` wording.
+- [x] Test: boot prompt contains required language.
+  - [x] Generate boot prompt for coordinator.
+  - [x] Assert it mentions unfinished active job, direct intake, `agentdock recruit`, and forbids native subagents/internal team mode.
+  - [x] Assert it does not rely only on raw `CURRENT.md exists` wording.
 
-- [ ] Test: stale pane mapping does not count as live.
-  - [ ] Write fake `.agentdock/state/panes.env` with a pane id not returned by fake tmux.
-  - [ ] Run send/recruit path.
-  - [ ] Assert stale mapping is removed or ignored.
+- [x] Test: stale pane mapping does not count as live.
+  - [x] Write fake `.agentdock/state/panes.env` with a pane id not returned by fake tmux.
+  - [x] Run send/recruit path.
+  - [x] Assert stale mapping is removed or ignored.
 
 ## P1 - Regression commands
 
@@ -143,24 +143,24 @@ Expected: all pass.
 
 ## P2 - Documentation/readability
 
-- [ ] Add short examples:
-  - [ ] `agentdock intake --from orchestrator --request "문서 오타 수정"`
-  - [ ] `agentdock intake --from orchestrator --file /tmp/request.md`
-  - [ ] `agentdock job finish --summary "..."` followed by `LAST_FINISHED.md` behavior.
+- [x] Add short examples:
+  - [x] `agentdock intake --from orchestrator --request "문서 오타 수정"`
+  - [x] `agentdock intake --from orchestrator --file /tmp/request.md`
+  - [x] `agentdock job finish --summary "..."` followed by `LAST_FINISHED.md` behavior.
 
-- [ ] Document compatibility:
-  - [ ] `adock-delegate` remains supported.
-  - [ ] `agentdock delegate` remains supported.
-  - [ ] `agentdock intake` is the preferred explicit name.
+- [x] Document compatibility:
+  - [x] `adock-delegate` remains supported.
+  - [x] `agentdock delegate` remains supported.
+  - [x] `agentdock intake` is the preferred explicit name.
 
-- [ ] Document migration note:
-  - [ ] Users/scripts that read `CURRENT.md` after finish should read `LAST_FINISHED.md` instead.
+- [x] Document migration note:
+  - [x] Users/scripts that read `CURRENT.md` after finish should read `LAST_FINISHED.md` instead.
 
 ## Definition of done
 
-- [ ] Direct post-finish user work given to the live coordinator pane cannot bypass AgentDock job classification.
-- [ ] Completed jobs are not treated as active jobs.
-- [ ] Team-required work creates/reuses tmux-backed AgentDock roles only.
-- [ ] Solo work remains coordinator-only and lightweight.
-- [ ] Test suite proves the post-finish direct-intake scenario.
-- [ ] Docs and help text describe the new command and lifecycle semantics.
+- [x] Direct post-finish user work given to the live coordinator pane cannot bypass AgentDock job classification.
+- [x] Completed jobs are not treated as active jobs.
+- [x] Team-required work creates/reuses tmux-backed AgentDock roles only.
+- [x] Solo work remains coordinator-only and lightweight.
+- [x] Test suite proves the post-finish direct-intake scenario.
+- [x] Docs and help text describe the new command and lifecycle semantics.

@@ -1,5 +1,15 @@
 # BMAD Template Sync Work Order
 
+Status: Implemented; retained as historical work order and regression reference.
+
+Implementation notes (2026-05-24):
+
+- `roles sync bmad --source github --ref <ref> --yes` fetches BMAD templates from `bmad-code-org/BMAD-METHOD` and caches them under the user role-template directory.
+- `roles sync bmad --offline --yes` installs bundled fallback templates without network access.
+- `recruit --template <bmad-id> --sync-template` and `AGENTDOCK_BMAD_AUTO_SYNC=1` support explicit/opt-in recruit-time fetch.
+- `recruit --require-template` fails if the required BMAD template cannot be fetched.
+- Local user cache and bundled templates remain ahead of remote fetches in the resolution order.
+
 ## Goal
 
 AgentDock should form teams from local prompt templates first, but when a needed BMAD role template is missing or stale, it should be able to fetch the official BMAD-METHOD prompt from GitHub, cache it locally, and then use the cached local copy for future `agentdock recruit` calls.
@@ -13,14 +23,14 @@ The intended user experience is:
 5. Cache the fetched prompt under the user template directory.
 6. Generate `.agentdock/prompts/<role>.md` from the cached prompt plus the mission override.
 
-## Current State
+## Original State
 
-AgentDock currently exposes 11 template IDs in `agentdock roles list`:
+At the time this work order was written, AgentDock exposed 11 template IDs in `agentdock roles list`:
 
 - BMAD: `bmad-agent-dev`, `bmad-analyst`, `bmad-architect`, `bmad-pm`, `bmad-tech-writer`, `bmad-ux-designer`
 - AgentDock supplemental: `agentdock-ceo`, `agentdock-cto`, `agentdock-marketing`, `agentdock-planner`, `agentdock-qa`
 
-The current implementation is local-first and mostly static:
+The original implementation was local-first and mostly static:
 
 - `role_template_file` checks user template files first, then bundled repo template paths.
 - `role_template_body` contains short built-in fallback summaries.

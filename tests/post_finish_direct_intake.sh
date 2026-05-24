@@ -131,6 +131,30 @@ env PATH="$fakebin:$PATH" ./bin/agentdock intake --from orchestrator --project "
 new_job="$(job_dir_for "$project")"
 [[ "$new_job" != "$failed" ]] || fail "failed CURRENT blocked new intake"
 
+project="$TMP/default-completed-current"
+make_project "$project"
+completed="$project/.agent-work/07_JOBS/JOB-completed-defaults"
+mkdir -p "$completed/TASKS" "$completed/REPORTS"
+printf '# done\n' > "$completed/README.md"
+printf '# Lifecycle\n\nStatus: complete\n' > "$completed/LIFECYCLE.md"
+printf '{"mode":"standard_team","budget":{"max_meetings":1},"selected_roles":["developer"]}\n' > "$completed/ORCHESTRATION.json"
+printf '# Task developer\n' > "$completed/TASKS/developer.md"
+printf '# Report\n\nSummary: done\n' > "$completed/REPORTS/26052400:00:00.000000-developer.md"
+printf 'Active job: %s\n' "$completed/README.md" > "$project/.agent-work/07_JOBS/CURRENT.md"
+for command in \
+  'job report --from developer --summary late-report' \
+  'job finish --summary duplicate-finish' \
+  'job tft create --name late --members developer --goal late --blocking' \
+  'job meeting start --title late --reason tradeoff' \
+  'job tick --json'; do
+  set +e
+  out="$(env PATH="$fakebin:$PATH" ./bin/agentdock $command --project "$project" 2>&1)"
+  status=$?
+  set -e
+  [[ "$status" -ne 0 ]] || fail "completed CURRENT should not satisfy default command: $command"
+  printf '%s' "$out" | grep -q "no active job" || fail "completed CURRENT default command should say no active job: $command"
+done
+
 project="$TMP/team-intake"
 make_project "$project"
 env PATH="$fakebin:$PATH" ./bin/agentdock intake --from orchestrator --project "$project" --request "CLI 흐름과 QA 게이트를 구현하고 테스트해줘" >/dev/null

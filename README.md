@@ -19,6 +19,8 @@
 
 ## 📖 Overview
 
+Status: Version `0.3.2` is the current CLI-only Hermes/tmux release.
+
 AgentDock는 프로젝트 디렉토리를 **로컬 멀티에이전트 작업실**로 변환합니다. 데스크톱 앱이나 브라우저 UI 없이, 순수 터미널 CLI와 tmux만으로 작동합니다.
 
 핵심 아이디어: 하나의 명령어로 CEO 에이전트가 작업을 분류하고, 필요할 때만 최소한의 팀을 구성하여 작업을 실행합니다.
@@ -115,7 +117,7 @@ cd agentdock
 adock doctor
 ```
 
-`s install.sh`는 자동으로 Hermes Agent를 감지하고, 없으면 GitHub에서 설치합니다. 건너뛰려면:
+`./install.sh`는 자동으로 Hermes Agent를 감지하고, 없으면 GitHub에서 설치합니다. 건너뛰려면:
 
 ```bash
 ./install.sh --skip-hermes --prefix "$HOME/.local"

@@ -1,12 +1,12 @@
 # AgentDock Developer Notes (v0.3.2)
 
-> Generated: 2026-05-23 | Source analysis of `bin/agentdock` (5835 lines, pure Bash 4+)
+> Generated: 2026-05-24 | Source analysis of `bin/agentdock` (5891 lines, pure Bash 4+)
 
 ---
 
 ## 1. Architecture Overview
 
-AgentDock is a **terminal-first multi-agent orchestrator** built as a single 5835-line Bash script. There is no desktop app, no bundled UI runtime, and no browser-like control surface. The only runtime agent is **Hermes Agent** — other CLI adapters (Codex, Claude, Gemini, OpenCode) are registered in `adapters/*.conf` but the actual runtime enforces Hermes-only.
+AgentDock is a **terminal-first multi-agent orchestrator** built as a single 5891-line Bash script. There is no desktop app, no bundled UI runtime, and no browser-like control surface. The only runtime agent is **Hermes Agent** — other CLI adapters (Codex, Claude, Gemini, OpenCode) are registered in `adapters/*.conf` but the actual runtime enforces Hermes-only.
 
 ### Core Design Principle
 
@@ -22,7 +22,7 @@ The CEO decides the smallest useful team shape using **adaptive orchestration** 
 
 ```
 agentdock/
-  bin/agentdock           ← 5835-line Bash CLI (the entire runtime)
+  bin/agentdock           ← 5891-line Bash CLI (the entire runtime)
   adapters/               ← *.conf files for AI CLI detection (hermes, codex, claude, gemini, opencode)
   roles/
     bmad/                 ← BMAD Method role templates (Analyst, PM, Architect, Dev, UX, Tech Writer)
@@ -54,6 +54,8 @@ project/
     14_SHARED_CONTEXT/    ← PROJECT_CONTEXT.md, BROADCASTS.md
     15_STATUS/<role>.json ← Lightweight live role status
     16_WORKTREES/         ← Optional per-role git worktrees
+    07_JOBS/CURRENT.md   ← Unfinished active job pointer only
+    07_JOBS/LAST_FINISHED.md ← Most recent completed job/final-report pointer
     LOCKS.md              ← File-level lock table
 ```
 
@@ -258,12 +260,12 @@ Pattern-matches intent keywords against configured role names:
 ### 4.7 Prompt Generation
 
 **Role prompts** (`generate_role_prompt`):
-- CEO gets orchestration authority rules (adock-delegate, agentdock recruit, task cards, reports)
+- CEO gets orchestration authority rules (`agentdock intake`, `adock-delegate` compatibility alias, `agentdock recruit`, task cards, reports)
 - Other roles get mission + boundaries + required output schema
 
 **Boot prompts** (`generate_boot_prompt`):
 - Worker roles: fast boot (compact, 8 rules, READY signal expected)
-- CEO: full boot with team formation rules, delegate command, job lifecycle
+- CEO: full boot with team formation rules, direct-intake command, job lifecycle
 - **Content-hash caching**: regenerates only when content changes (cksum comparison)
 - Hashes stored in `.agentdock/generated/boot-<role>.md.hash`
 
@@ -415,6 +417,7 @@ Tests are shell scripts under `tests/`:
 | Test File | Coverage |
 |---|---|
 | `smoke.sh` | Basic CLI smoke (version, help, doctor output) |
+| `post_finish_direct_intake.sh` | Post-finish direct intake, CURRENT/LAST_FINISHED semantics |
 | `workspace_p05.sh` | P0.5 percentile latency target |
 | `workspace_action_audit.sh` | Action audit logging |
 | `workspace_orchestration_contracts.sh` | ORCHESTRATION.json schema validation |
@@ -440,7 +443,7 @@ Tests are shell scripts under `tests/`:
 
 ## 6. Key Design Decisions
 
-1. **Single Bash script** — 5835 lines, no external runtime dependencies beyond tmux + hermes + git + python3. Maximum portability.
+1. **Single Bash script** — 5891 lines, no external runtime dependencies beyond tmux + hermes + git + python3. Maximum portability.
 2. **Filesystem as coordination bus** — No message queue, no database. Everything is markdown/JSON files under `.agent-work/`.
 3. **Hermes-only runtime** — Despite adapter registry for 5 CLIs, workers are strictly Hermes. This prevents fragmentation.
 4. **Content-hash boot caching** — Boot prompts regenerate only when content changes, saving startup time.

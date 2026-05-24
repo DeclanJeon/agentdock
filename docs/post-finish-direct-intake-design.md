@@ -1,7 +1,7 @@
 # Post-Finish Direct Hermes Intake Design
 
 Generated: 2026-05-24
-Status: Proposed
+Status: Implemented with follow-up hardening
 Scope: AgentDock CLI / Hermes tmux roles only
 
 ## Goal
