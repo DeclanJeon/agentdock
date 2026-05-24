@@ -12,7 +12,7 @@
   <img alt="Runtime" src="https://img.shields.io/badge/runtime-Hermes%20Agent-111827">
   <img alt="Shell" src="https://img.shields.io/badge/shell-Bash%204%2B-4EAA25?logo=gnubash&logoColor=white">
   <img alt="tmux" src="https://img.shields.io/badge/orchestration-tmux-1f2937">
-  <img alt="Lines" src="https://img.shields.io/badge/code-5835%20lines%20Bash-333">
+  <img alt="Lines" src="https://img.shields.io/badge/code-5891%20lines%20Bash-333">
 </p>
 
 ---
@@ -27,6 +27,8 @@ AgentDock는 프로젝트 디렉토리를 **로컬 멀티에이전트 작업실*
 adock job "작업내용"
 ```
 
+작업이 끝난 뒤에도 CEO Hermes tmux pane은 살아있습니다. 그 pane에 사용자가 새 작업을 직접 주면, AgentDock는 `agentdock intake` 경로로 다시 접수하여 기존 `adock job`과 같은 solo/team 분류 로직을 사용합니다. 팀이 필요하면 Hermes 내부 subagent가 아니라 `agentdock recruit`로 tmux 역할을 구성합니다.
+
 ---
 
 ## 🧠 작동 원리 (How It Works)
@@ -37,6 +39,7 @@ adock job "작업내용"
  User                     CEO Hermes                    Worker Hermes
   │                          │                              │
   ├─ adock job "버그 수정" ──→│                              │
+  │  또는 agentdock intake    │                              │
   │                          ├─ 분류 (solo? team?)          │
   │                          ├─ ORCHESTRATION.json 생성     │
   │                          ├─ 작업카드 발행 ──────────────→│
@@ -84,6 +87,8 @@ project/
 │
 └── .agent-work/             ← 조정 작업공간
     ├── 07_JOBS/JOB-*/       ← 활성/완료 작업
+    ├── 07_JOBS/CURRENT.md   ← 미완료 활성 작업 포인터
+    ├── 07_JOBS/LAST_FINISHED.md ← 최근 완료 작업/최종보고서 포인터
     │   ├── README.md        ← 작업 요청서
     │   ├── ORCHESTRATION.json ← 오케스트레이션 정책
     │   ├── TEAM.md          ← 팀 구성 계획
@@ -135,6 +140,8 @@ adock doctor
 | 명령어 | 설명 |
 |---|---|
 | `adock job "작업내용"` | CEO 주도 작업 시작 (분류 → 팀구성 → 실행 → 보고) |
+| `agentdock intake --from <role> --request "..."` | 살아있는 Hermes pane에서 직접 받은 새 작업을 CEO 주도 job으로 재접수 |
+| `adock-delegate --from <role> --request "..."` | `agentdock intake` 호환 alias |
 | `adock job report --from <role> --summary "..."` | 역할 보고서 제출 |
 | `adock job finish --summary "..."` | 작업 완료: 보고서 집계 + 워커 pane 정리 |
 | `adock job tick [--json] [--apply]` | 작업 상태 점검 및 다음 액션 제안 |
@@ -223,6 +230,8 @@ planning → recruiting → executing → verifying → complete
 4. **verifying** — QA 게이트, 역할 보고서 검토, TFT 해결
 5. **complete** — 최종 보고서 작성, 완료된 워커 pane 정리
 
+완료 후에는 `CURRENT.md`가 제거되고 `LAST_FINISHED.md`에 최근 완료 job과 최종 보고서 위치가 기록됩니다. 따라서 살아있는 coordinator pane이 다음 direct request를 받더라도 완료된 job에 다시 붙지 않고 새 intake를 시작합니다. 단, 미완료 active job이 있으면 새 intake는 조용히 덮어쓰지 않고 명시적으로 거부합니다.
+
 ### 완료 게이트 (Finish Gates)
 
 `adock job finish`는 다음 조건을 모두 만족해야 실행됩니다:
@@ -244,11 +253,12 @@ planning → recruiting → executing → verifying → complete
 
 ## 🧪 테스트 (Tests)
 
-11개 셸 기반 통합 테스트 + 50개 이상의 JSON 픽스처:
+14개 셸 기반 통합 테스트 + 50개 이상의 JSON 픽스처:
 
 ```bash
 bash tests/smoke.sh                           # 기본 CLI 정상작동
 bash tests/workspace_adaptive_orchestration.sh # 적응형 분류 검증
+bash tests/post_finish_direct_intake.sh         # 완료 후 direct Hermes intake 검증
 bash tests/workspace_qa_gate.sh                # QA 게이트 적용
 bash tests/workspace_security_redaction.sh     # 시크릿 마스킹
 bash tests/workspace_p05.sh                    # P0.5 지연시간 목표
@@ -276,6 +286,9 @@ git push origin v0.3.2
 | [docs/DEVELOPER_NOTES.md](docs/DEVELOPER_NOTES.md) | 개발자 노트 (아키텍처, 데이터 구조, 로직 상세) |
 | [docs/adaptive-orchestration-design.md](docs/adaptive-orchestration-design.md) | 적응형 오케스트레이션 설계 |
 | [docs/adaptive-orchestration-modes.md](docs/adaptive-orchestration-modes.md) | 오케스트레이션 모드별 동작 |
+| [docs/post-finish-direct-intake-design.md](docs/post-finish-direct-intake-design.md) | 완료 후 살아있는 Hermes pane direct intake 설계 |
+| [docs/post-finish-direct-intake-checklist.md](docs/post-finish-direct-intake-checklist.md) | post-finish intake 구현/검증 체크리스트 |
+| [docs/post-finish-direct-intake-work-order.md](docs/post-finish-direct-intake-work-order.md) | AgentDock job 실행용 작업지시서 |
 
 ---
 
@@ -283,7 +296,7 @@ git push origin v0.3.2
 
 | 구성요소 | 기술 |
 |---|---|
-| 언어 | **Bash 4.0+** (순수 셸, 5835 lines) |
+| 언어 | **Bash 4.0+** (순수 셸, 5891 lines) |
 | 프로세스 관리 | **tmux** (pane 단위 에이전트 수명주기) |
 | AI 런타임 | **Hermes Agent** (유일한 워커 CLI) |
 | 조정 버스 | **파일시스템** (마크다운 + JSON) |
@@ -298,6 +311,9 @@ git push origin v0.3.2
 - 🎯 CLI-only: `adock job "..."` 중심으로 단순화
 - 📦 설치/릴리스 아티팩트 최소화 (CLI + 어댑터 + 역할 + 테스트만)
 - 🏗️ 작업공간 HTML 익스포트를 경량 CLI 진단으로 대체
+- 🔁 완료 후 살아있는 CEO Hermes pane direct request를 `agentdock intake`로 재접수
+- 🧭 `CURRENT.md`는 미완료 작업 전용, `LAST_FINISHED.md`는 최근 완료 작업 기록으로 분리
+- 🧪 post-finish direct intake 회귀 테스트 추가
 
 ---
 

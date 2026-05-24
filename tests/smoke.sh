@@ -150,6 +150,7 @@ test -f .agentdock/config.yml
 test -f .agentdock/config.runtime
 test -f .agentdock/generated/boot-ceo-orchestrator.md
 grep -q "Codex native subagents" .agentdock/generated/boot-ceo-orchestrator.md
+grep -q "agentdock intake --from ceo-orchestrator" .agentdock/generated/boot-ceo-orchestrator.md
 grep -q "adock-delegate --from ceo-orchestrator" .agentdock/generated/boot-ceo-orchestrator.md
 "$ROOT/bin/agentdock" team > "$TMP/team.out"
 grep -q ceo-orchestrator "$TMP/team.out"
@@ -262,6 +263,17 @@ grep -q "$JOB_DIR/TASKS/analyst.md" .agent-work/12_INBOX/analyst/*.md
 grep -q "$JOB_DIR/TASKS/reviewer.md" .agent-work/12_INBOX/reviewer/*.md
 grep -q "$JOB_DIR/TASKS/qa-check.md" .agent-work/12_INBOX/qa-check/*.md
 BEFORE_QA="$(find .agent-work/12_INBOX/qa-check -maxdepth 1 -type f -name '*.md' | wc -l | tr -d ' ')"
+if adock-delegate --from ceo-orchestrator --request "CEO-pane delegated job" > "$TMP/delegate-active.out" 2>&1; then
+  echo "delegate/intake should refuse to overwrite an unfinished active job" >&2
+  exit 1
+fi
+grep -q 'active unfinished job exists' "$TMP/delegate-active.out"
+cat > .agent-work/07_JOBS/LAST_FINISHED.md <<EOF
+Finished job: $JOB_DIR/README.md
+Final report: $JOB_DIR/REPORTS/simulated-final.md
+Finished at: smoke
+EOF
+rm -f .agent-work/07_JOBS/CURRENT.md
 adock-delegate --from ceo-orchestrator --request "CEO-pane delegated job"
 grep -q 'Job kickoff:' .agent-work/14_SHARED_CONTEXT/BROADCASTS.md
 AFTER_QA="$(find .agent-work/12_INBOX/qa-check -maxdepth 1 -type f -name '*.md' | wc -l | tr -d ' ')"
@@ -327,7 +339,9 @@ grep -q PANE_qa_check .agentdock/state/panes.env
 grep -q PANE_legacy_codex .agentdock/state/panes.env
 "$ROOT/bin/agentdock" report > "$TMP/report.out"
 grep -q 'AgentDock Report' "$TMP/report.out"
-grep -q 'Current team plan' "$TMP/report.out"
+test -f .agent-work/07_JOBS/LAST_FINISHED.md
+grep -q "$FINAL_REPORT" .agent-work/07_JOBS/LAST_FINISHED.md
+! test -f .agent-work/07_JOBS/CURRENT.md
 "$ROOT/bin/agentdock" report --json | json_validate
 
 coordination_checksum() {

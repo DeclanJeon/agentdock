@@ -2,6 +2,8 @@
 
 AgentDock routes every `adock job "..."` through the CEO Hermes role. The CEO chooses the smallest useful execution shape instead of always creating a team.
 
+Direct user work given to a live coordinator Hermes tmux pane after a prior job finishes uses the same classifier through `agentdock intake --from <role> --request "..."` (`adock-delegate` / `agentdock delegate` remain compatibility aliases). Finished jobs are historical: `CURRENT.md` is cleared on finish, and `LAST_FINISHED.md` stores the most recent completed job/final-report pointer.
+
 ## Modes
 
 | Mode | When to use | Behavior |

@@ -11,7 +11,7 @@ AgentDock is a **terminal-first multi-agent orchestrator** built as a single 583
 ### Core Design Principle
 
 ```
-User → adock job "작업내용" → CEO Hermes pane → classify → solo/team → execute → report → finish
+User → adock job "작업내용" / agentdock intake --from orchestrator --request "작업내용" → CEO Hermes pane → classify → solo/team → execute → report → finish
 ```
 
 The CEO decides the smallest useful team shape using **adaptive orchestration** — simple jobs stay solo, complex jobs get a capped team, critical jobs get mandatory QA/review gates.
@@ -157,6 +157,7 @@ Valid states: `idle | assigned | working | blocked | reviewing | reported | offl
    e. teardown_job_team(): Disbands completed/reported worker panes
       - Keeps coordinator active
       - Keeps unfinished/unreported workers active
+   f. Writes .agent-work/07_JOBS/LAST_FINISHED.md and clears CURRENT.md when the finished job was current
 ```
 
 ### 4.2 Adaptive Orchestration Classification (write_orchestration_json)

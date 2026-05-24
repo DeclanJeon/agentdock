@@ -11,3 +11,5 @@ AgentDock uses the smallest coordination structure that can safely complete a jo
 | `critical_review` | Security, permissions, deployment, destructive, or broad runtime risk. | Review/security/QA lanes required when available. | Required review/QA gates must pass; authority warnings are recorded. |
 
 Simple jobs should not look broken just because no team exists. A missing team is valid when the mode says the coordination overhead would exceed the work.
+
+`agentdock intake` uses the same mode classifier as `agentdock job`; it is the preferred direct-Hermes-pane entrypoint when no unfinished job is active. Completed jobs are tracked through `LAST_FINISHED.md`, not treated as active `CURRENT.md` work.
