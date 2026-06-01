@@ -65,8 +65,8 @@ python3 -m json.tool "$TMP/set.json" >/dev/null
 grep -q '"ok": true\|"ok":true' "$TMP/set.json" || fail "model set did not return ok"
 grep -q '^HERMES_MODEL=gpt-5.3-codex$' "$project/.agentdock/config.runtime" || fail "runtime missing HERMES_MODEL"
 grep -q '^HERMES_PROVIDER=openai-codex$' "$project/.agentdock/config.runtime" || fail "runtime missing HERMES_PROVIDER"
-grep -q '^AGENT_orchestrator_CMD=HERMES_INFERENCE_MODEL=gpt-5.3-codex HERMES_INFERENCE_PROVIDER=openai-codex hermes$' "$project/.agentdock/config.runtime" || fail "orchestrator command does not carry Hermes env override"
-grep -q '^AGENT_developer_CMD=HERMES_INFERENCE_MODEL=gpt-5.3-codex HERMES_INFERENCE_PROVIDER=openai-codex hermes$' "$project/.agentdock/config.runtime" || fail "developer command does not carry Hermes env override"
+grep -q '^AGENT_orchestrator_CMD="HERMES_INFERENCE_MODEL=gpt-5.3-codex HERMES_INFERENCE_PROVIDER=openai-codex hermes"$' "$project/.agentdock/config.runtime" || fail "orchestrator command does not carry Hermes env override"
+grep -q '^AGENT_developer_CMD="HERMES_INFERENCE_MODEL=gpt-5.3-codex HERMES_INFERENCE_PROVIDER=openai-codex hermes"$' "$project/.agentdock/config.runtime" || fail "developer command does not carry Hermes env override"
 grep -q 'model.default=gpt-5.3-codex' "$TMP/hermes.log" || fail "Hermes global model was not persisted"
 grep -q 'model.provider=openai-codex' "$TMP/hermes.log" || fail "Hermes global provider was not persisted"
 

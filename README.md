@@ -106,6 +106,13 @@ project/
     └── 14_SHARED_CONTEXT/   ← 공유 브로드캐스트/컨텍스트
 ```
 
+`adock init`은 Obsidian vault 설정을 감지할 수 있으면 JOB 문서를 vault 안의
+`AgentDock/<프로젝트명>/JOBS/JOB-*`로 함께 복사합니다. 원본 `.agent-work/07_JOBS`
+구조는 유지하고, Obsidian 쪽에는 `00 Job Overview.md`, `Reports/Final Report - ...`
+처럼 읽기 쉬운 파일명과 원본 경로 메타데이터를 붙여 저장합니다. 자동 감지가 어려운
+환경에서는 `AGENTDOCK_OBSIDIAN_VAULT=/path/to/vault adock init`로 vault를 지정할 수
+있으며, 감지 실패 시 초기화는 계속 진행되고 동기화만 비활성화됩니다.
+
 ---
 
 ## 🚀 설치 (Install)

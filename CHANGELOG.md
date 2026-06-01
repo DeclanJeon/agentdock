@@ -6,6 +6,7 @@ All notable AgentDock updates are recorded here by release version.
 
 - Removed the desktop application stack and all tracked React/Vite/Tauri source, native packaging, generated character assets, and UI-only tests.
 - Simplified installation and release packaging to CLI assets only: `bin`, adapters, roles, tests, scripts, README, VERSION, and install script.
+- Added optional Obsidian JOB mirroring during `adock init`: detected vaults receive readable Markdown copies under `AgentDock/<project>/JOBS/` while `.agent-work/07_JOBS` remains the source of truth.
 - Kept terminal-first orchestration through `adock job "..."`, CEO-led team selection, reports, QA gates, TFT/meeting records, runtime model settings, and worktree tools.
 - Added post-finish direct intake: live coordinator Hermes panes route new direct user work through `agentdock intake` / `adock-delegate`, reusing adaptive solo/team classification without native subagents.
 - Split active and historical job pointers: `CURRENT.md` now represents unfinished active work, `LAST_FINISHED.md` records the most recent completed job, and default job commands reject completed/failed/cancelled CURRENT pointers.

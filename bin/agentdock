@@ -87,6 +87,8 @@ parse_config_value() {
   if [[ "$value" == \"*\" && "$value" == *\" && ${#value} -ge 2 ]]; then
     value="${value:1:${#value}-2}"
     value="${value//\\\"/\"}"
+    value="${value//\\\$/\$}"
+    value="${value//\\\`/\`}"
     value="${value//\\\\/\\}"
   elif [[ "$value" == \'*\' && "$value" == *\' && ${#value} -ge 2 ]]; then
     value="${value:1:${#value}-2}"
@@ -110,7 +112,16 @@ load_key_value_file() {
 
 write_config_line() {
   local key="$1" value="${2:-}"
-  printf '%s=%s\n' "$key" "${value//$'\n'/ }"
+  value="${value//$'\n'/ }"
+  if [[ -z "$value" || "$value" =~ ^[A-Za-z0-9_./:@%+=,-]+$ ]]; then
+    printf '%s=%s\n' "$key" "$value"
+  else
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//\$/\\\$}"
+    value="${value//\`/\\\`}"
+    printf '%s="%s"\n' "$key" "$value"
+  fi
 }
 
 project_session_name() {
@@ -1934,6 +1945,9 @@ write_runtime() {
     write_config_line ATTACH_ON_START "1"
     write_config_line USE_WORKTREES "$use_worktrees"
     write_config_line WORK_DIR "$work_dir"
+    write_config_line OBSIDIAN_SYNC_ENABLED "${OBSIDIAN_SYNC_ENABLED:-0}"
+    write_config_line OBSIDIAN_VAULT_PATH "${OBSIDIAN_VAULT_PATH:-}"
+    write_config_line OBSIDIAN_JOB_DIR "${OBSIDIAN_JOB_DIR:-}"
     write_config_line AGENT_IDS "$agent_ids"
     write_config_line HERMES_MODEL "${HERMES_MODEL:-}"
     write_config_line HERMES_PROVIDER "${HERMES_PROVIDER:-}"
@@ -1981,6 +1995,10 @@ write_yaml() {
     say "workspace:"
     say "  work_dir: ${WORK_DIR:-.agent-work}"
     if [[ "$use_worktrees" == 1 ]]; then say "  use_worktrees: true"; else say "  use_worktrees: false"; fi
+    say "obsidian:"
+    if [[ "${OBSIDIAN_SYNC_ENABLED:-0}" == 1 ]]; then say "  sync_enabled: true"; else say "  sync_enabled: false"; fi
+    say "  vault_path: ${OBSIDIAN_VAULT_PATH:-}"
+    say "  job_dir: ${OBSIDIAN_JOB_DIR:-}"
     say "agents:"
     local id var
     for id in $AGENT_IDS; do
@@ -2000,6 +2018,282 @@ write_yaml() {
       say "    cwd_mode: $cwd_mode"
     done
   } > "$root/.agentdock/config.yml"
+}
+
+detect_obsidian_vault() {
+  python3 - <<'PY'
+import json
+import os
+import shutil
+import sys
+from pathlib import Path
+
+override = os.environ.get("AGENTDOCK_OBSIDIAN_VAULT") or os.environ.get("OBSIDIAN_VAULT_PATH")
+if override and Path(override).expanduser().is_dir():
+    print(str(Path(override).expanduser()))
+    raise SystemExit(0)
+
+home = Path.home()
+candidates = []
+xdg = os.environ.get("XDG_CONFIG_HOME")
+if xdg:
+    candidates.append(Path(xdg) / "obsidian" / "obsidian.json")
+else:
+    candidates.append(home / ".config" / "obsidian" / "obsidian.json")
+candidates.append(home / "Library" / "Application Support" / "obsidian" / "obsidian.json")
+appdata = os.environ.get("APPDATA")
+if appdata:
+    candidates.append(Path(appdata) / "obsidian" / "obsidian.json")
+
+seen = set()
+ranked = []
+for config in candidates:
+    config = config.expanduser()
+    if config in seen or not config.is_file():
+        continue
+    seen.add(config)
+    try:
+        data = json.loads(config.read_text(encoding="utf-8"))
+    except Exception:
+        continue
+    vaults = data.get("vaults") if isinstance(data, dict) else None
+    if not isinstance(vaults, dict):
+        continue
+    last_opened = (
+        data.get("last_opened")
+        or data.get("lastOpened")
+        or data.get("open")
+        or data.get("lastOpen")
+    )
+    for vault_id, meta in vaults.items():
+        if not isinstance(meta, dict):
+            continue
+        raw_path = meta.get("path")
+        if not raw_path:
+            continue
+        path = Path(str(raw_path)).expanduser()
+        if not path.is_dir():
+            continue
+        ts = meta.get("ts") or meta.get("mtime") or 0
+        try:
+            ts = int(ts)
+        except Exception:
+            ts = 0
+        open_score = 1 if meta.get("open") is True else 0
+        last_score = 1 if str(last_opened or "") in {str(vault_id), str(raw_path), str(path)} else 0
+        ranked.append((last_score, open_score, ts, str(path)))
+
+if ranked:
+    ranked.sort(reverse=True)
+    print(ranked[0][3])
+    raise SystemExit(0)
+
+# If Obsidian is installed but no vault has been opened yet, there is no safe
+# project folder to target. Return failure and let init continue without sync.
+if shutil.which("obsidian"):
+    raise SystemExit(1)
+raise SystemExit(1)
+PY
+}
+
+obsidian_safe_segment() {
+  python3 - "$1" <<'PY'
+import re
+import sys
+value = sys.argv[1].strip() or "AgentDock"
+value = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "-", value)
+value = re.sub(r"\s+", " ", value).strip(" .-")
+print(value[:96] or "AgentDock")
+PY
+}
+
+configure_obsidian_job_sync() {
+  local root="$1" project_name="$2" vault="" project_dir=""
+  OBSIDIAN_SYNC_ENABLED=0
+  OBSIDIAN_VAULT_PATH=""
+  OBSIDIAN_JOB_DIR=""
+  if ! vault="$(detect_obsidian_vault 2>/dev/null)"; then
+    say "Obsidian vault not detected; AgentDock JOB Obsidian sync disabled."
+    return 0
+  fi
+  project_dir="$(obsidian_safe_segment "$project_name")"
+  OBSIDIAN_SYNC_ENABLED=1
+  OBSIDIAN_VAULT_PATH="$vault"
+  OBSIDIAN_JOB_DIR="$vault/AgentDock/$project_dir/JOBS"
+  mkdir -p "$OBSIDIAN_JOB_DIR"
+  cat > "$vault/AgentDock/$project_dir/AgentDock JOB Index.md" <<EOF
+# AgentDock JOB Index
+
+Project: $project_name
+
+AgentDock mirrors job documents for this project under:
+
+- \`$OBSIDIAN_JOB_DIR\`
+
+Generated by \`adock init\`. Files in this folder are managed copies of \`.agent-work/07_JOBS\`.
+EOF
+  say "Obsidian JOB sync enabled: $OBSIDIAN_JOB_DIR"
+}
+
+sync_agentdock_jobs_to_obsidian() {
+  local root="$1" job_arg="${2:-}" job_dir
+  source_runtime "$root"
+  [[ "${OBSIDIAN_SYNC_ENABLED:-0}" == 1 ]] || return 0
+  [[ -n "${OBSIDIAN_JOB_DIR:-}" ]] || return 0
+  mkdir -p "$OBSIDIAN_JOB_DIR" || return 0
+  if [[ -n "$job_arg" ]]; then
+    job_dir="$job_arg"
+    [[ "$job_dir" == /* ]] || job_dir="$root/${job_dir#./}"
+    [[ -d "$job_dir" ]] || return 0
+    export_agentdock_job_to_obsidian "$root" "$job_dir" || return 0
+    return 0
+  fi
+  [[ -d "$root/.agent-work/07_JOBS" ]] || return 0
+  while IFS= read -r job_dir; do
+    export_agentdock_job_to_obsidian "$root" "$job_dir" || true
+  done < <(find "$root/.agent-work/07_JOBS" -maxdepth 1 -type d -name 'JOB-*' 2>/dev/null | sort)
+}
+
+export_agentdock_job_to_obsidian() {
+  local root="$1" job_dir="$2"
+  python3 - "$root" "$job_dir" "${PROJECT_NAME:-$(basename "$root")}" "${OBSIDIAN_JOB_DIR:-}" <<'PY'
+import datetime as _dt
+import json
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+job_dir = Path(sys.argv[2])
+project_name = sys.argv[3]
+dest_root = Path(sys.argv[4]) if sys.argv[4] else None
+if not dest_root or not job_dir.is_dir():
+    raise SystemExit(0)
+
+job_id = job_dir.name
+dest_job = dest_root / job_id
+
+unsafe = re.compile(r'[<>:"/\\|?*\x00-\x1f]+')
+
+def safe_segment(value: str, fallback: str = "Document") -> str:
+    value = unsafe.sub("-", value or "")
+    value = re.sub(r"[_-]+", " ", value)
+    value = re.sub(r"\s+", " ", value).strip(" .-")
+    return (value[:96] or fallback)
+
+def title_case_id(value: str) -> str:
+    return " ".join(part.capitalize() for part in re.split(r"[-_\s]+", value) if part) or "Item"
+
+def report_name(name: str) -> str:
+    stem = name[:-3] if name.endswith(".md") else name
+    m = re.match(r"^(\d{6})(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?-(.+)$", stem)
+    if not m:
+        return f"Report - {safe_segment(stem)}.md"
+    yymmdd, hh, mm, ss, role = m.groups()
+    year = 2000 + int(yymmdd[:2])
+    month = yymmdd[2:4]
+    day = yymmdd[4:6]
+    role_label = "Final" if role == "final" else title_case_id(role)
+    prefix = "Final Report" if role == "final" else "Report"
+    return f"{prefix} - {year:04d}-{month}-{day} {hh}-{mm}-{ss} - {role_label}.md"
+
+top_level = {
+    "README.md": "00 Job Overview.md",
+    "LIFECYCLE.md": "01 Lifecycle.md",
+    "TEAM.md": "02 Team Plan.md",
+    "QA.md": "03 QA Gate.md",
+    "ACTIONS.md": "04 Action Audit.md",
+    "DEPENDENCIES.json": "05 Dependencies.md",
+    "ORCHESTRATION.json": "06 Orchestration.md",
+    "KICKOFF_STATUS.json": "07 Kickoff Status.md",
+}
+dir_labels = {
+    "TASKS": "Tasks",
+    "REPORTS": "Reports",
+    "HANDOFFS": "Handoffs",
+    "OUTPUTS": "Outputs",
+    "TFTS": "TFTs",
+    "MEETINGS": "Meetings",
+    "DECISIONS": "Decisions",
+    "LOGS": "Logs",
+}
+
+def output_rel(rel: Path) -> Path:
+    parts = rel.parts
+    if len(parts) == 1:
+        return Path(top_level.get(parts[0], f"{safe_segment(Path(parts[0]).stem)}.md"))
+    head = parts[0]
+    folder = dir_labels.get(head, safe_segment(head))
+    name = parts[-1]
+    stem = Path(name).stem
+    if head == "REPORTS":
+        filename = report_name(name)
+    elif head == "TASKS":
+        filename = "Tasks Index.md" if name == "README.md" else f"Task - {title_case_id(stem)}.md"
+    elif head == "MEETINGS":
+        filename = f"Meeting - {title_case_id(stem.removeprefix('meeting-'))}.md"
+    elif head == "DECISIONS":
+        filename = f"Decision - {title_case_id(stem)}.md"
+    elif head == "TFTS":
+        filename = f"TFT - {title_case_id(stem)}.md"
+    elif head == "LOGS":
+        filename = f"Log - {safe_segment(stem)}.md"
+    else:
+        filename = f"{safe_segment(stem)}.md"
+    if len(parts) > 2:
+        nested = [safe_segment(part) for part in parts[1:-1]]
+        return Path(folder, *nested, filename)
+    return Path(folder, filename)
+
+def read_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return path.read_text(encoding="utf-8", errors="replace")
+
+def wrap(path: Path, rel: Path, out_name: Path) -> str:
+    text = read_text(path)
+    title = out_name.stem
+    source = rel.as_posix()
+    generated = _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    header = (
+        f"# {title}\n\n"
+        f"> AgentDock source: `{source}`  \n"
+        f"> Project: `{project_name}`  \n"
+        f"> Job: `{job_id}`  \n"
+        f"> Mirrored: `{generated}`\n\n"
+    )
+    if path.suffix.lower() == ".md":
+        return header + text.rstrip() + "\n"
+    language = "json" if path.suffix.lower() == ".json" else ""
+    return header + f"```{language}\n{text.rstrip()}\n```\n"
+
+files = sorted(p for p in job_dir.rglob("*") if p.is_file() and not p.name.endswith(".tmp"))
+dest_job.mkdir(parents=True, exist_ok=True)
+written = []
+for path in files:
+    rel = path.relative_to(job_dir)
+    out_rel = output_rel(rel)
+    out = dest_job / out_rel
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(wrap(path, rel, out_rel), encoding="utf-8")
+    written.append(out_rel.as_posix())
+
+index = {
+    "schema_version": "agentdock.obsidian_job_export.v1",
+    "project": project_name,
+    "job": job_id,
+    "source_job_dir": str(job_dir),
+    "exported_files": written,
+}
+(dest_job / "_AgentDock Export Manifest.md").write_text(
+    "# AgentDock Export Manifest\n\n"
+    "```json\n"
+    + json.dumps(index, ensure_ascii=False, indent=2)
+    + "\n```\n",
+    encoding="utf-8",
+)
+PY
 }
 
 generate_role_prompt() {
@@ -2302,8 +2596,10 @@ cmd_init() {
   else
     agent_ids="ceo-orchestrator"
   fi
+  configure_obsidian_job_sync "$root" "$project_name"
   write_runtime "$root" "$project_name" "$session" "$layout" "$agent_ids"
   regenerate_all "$root"
+  sync_agentdock_jobs_to_obsidian "$root"
   say "Initialized AgentDock project at $root"
 }
 
@@ -3316,6 +3612,7 @@ EOF
 
   printf 'Active job: %s\n' "$job/README.md" > "$root/.agent-work/07_JOBS/CURRENT.md"
   append_job_action_audit "$job" "$from" "job_start" "Created $orchestration_mode job with team cap $orchestration_team_cap" "ok"
+  sync_agentdock_jobs_to_obsidian "$root" "$job"
   if [[ "$fast_return" == 1 ]]; then
     cat > "$job/KICKOFF_STATUS.json" <<EOF
 {"schema_version":"agentdock.kickoff_status.v1","status":"queued","queued_at":"$(date -u '+%Y-%m-%dT%H:%M:%SZ')"}
@@ -3404,6 +3701,7 @@ cmd_job_report() {
   msg="$from submitted a role report for the active AgentDock job: $report_file. Review it and include it when you run agentdock job finish."
   cmd_send "$ceo" "$msg" --project "$root" || true
   cmd_broadcast --from "$from" --selected --job "$job_dir" --quiet "Role report submitted by $from: $report_file. Summary: $(truncate_text "$summary" "${AGENTDOCK_REPORT_BROADCAST_LIMIT:-800}")" --project "$root" || true
+  sync_agentdock_jobs_to_obsidian "$root" "$job_dir"
   say "Role report: $report_file"
   say "Submitted to CEO: $ceo"
 }
@@ -3603,6 +3901,7 @@ cmd_job_finish() {
   if [[ "$current_for_finish" == "$job_dir" ]]; then
     rm -f "$root/.agent-work/07_JOBS/CURRENT.md"
   fi
+  sync_agentdock_jobs_to_obsidian "$root" "$job_dir"
   say "Final report: $report_file"
   say "Submitted report: $submitted_file"
   if [[ "$teardown" == 1 ]]; then
@@ -4375,6 +4674,7 @@ EOF
     done
   fi
   cmd_broadcast --from "$role" --selected --job "$job" --quiet "Job task kickoff: $job/README.md. Task cards are under $job/TASKS. Use BROADCASTS.md for shared decisions and job report for completion." --project "$root" || true
+  sync_agentdock_jobs_to_obsidian "$root" "$job"
   say "Created job: $job"
   say "Dispatched task cards to configured roles"
 }
