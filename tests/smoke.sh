@@ -70,10 +70,30 @@ export PATH="$FAKE:$PATH"
 export XDG_CONFIG_HOME="$TMP/config"
 export AGENTDOCK_ADAPTER_VERSION_TIMEOUT="1s"
 tmux kill-session -t project-agents 2>/dev/null || true
-"$ROOT/bin/agentdock" version | grep -q 'agentdock 0.3.2'
+"$ROOT/bin/agentdock" version | grep -q 'agentdock 0.3.3'
 ln -sf "$ROOT/bin/agentdock" "$FAKE/adock"
 ln -sf "$ROOT/bin/agentdock" "$FAKE/adock-delegate"
-adock version | grep -q 'agentdock 0.3.2'
+adock version | grep -q 'agentdock 0.3.3'
+
+UPDATE_SRC="$TMP/update-src"
+UPDATE_PREFIX="$TMP/update-prefix"
+cp -R "$ROOT" "$UPDATE_SRC"
+rm -rf "$UPDATE_SRC/.git"
+git -C "$UPDATE_SRC" init -b main >/dev/null
+git -C "$UPDATE_SRC" config user.email agentdock-test@example.com
+git -C "$UPDATE_SRC" config user.name AgentDockTest
+replace_in_file 's/AGENTDOCK_VERSION="0.3.3"/AGENTDOCK_VERSION="9.9.9"/' "$UPDATE_SRC/bin/agentdock"
+git -C "$UPDATE_SRC" add . >/dev/null
+git -C "$UPDATE_SRC" commit -m 'fixture update' >/dev/null
+mkdir -p "$UPDATE_PREFIX/share/agentdock/bin" "$UPDATE_PREFIX/share/agentdock/adapters" "$UPDATE_PREFIX/share/agentdock/roles/bmad" "$UPDATE_PREFIX/share/agentdock/roles/agentdock" "$UPDATE_PREFIX/bin"
+cp "$ROOT/bin/agentdock" "$UPDATE_PREFIX/share/agentdock/bin/agentdock"
+cp "$ROOT/VERSION" "$UPDATE_PREFIX/share/agentdock/VERSION"
+cp "$ROOT/adapters/"*.conf "$UPDATE_PREFIX/share/agentdock/adapters/"
+chmod +x "$UPDATE_PREFIX/share/agentdock/bin/agentdock"
+ln -sf "$UPDATE_PREFIX/share/agentdock/bin/agentdock" "$UPDATE_PREFIX/bin/adock"
+AGENTDOCK_UPDATE_REPO="$UPDATE_SRC" "$UPDATE_PREFIX/bin/adock" update > "$TMP/update.out"
+grep -q 'AgentDock updated from GitHub commit' "$TMP/update.out"
+"$UPDATE_PREFIX/bin/adock" version | grep -q 'agentdock 9.9.9'
 
 MISS="$TMP/missing-hermes"
 mkdir -p "$MISS/fakebin" "$MISS/project"

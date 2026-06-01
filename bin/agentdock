@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-AGENTDOCK_VERSION="0.3.2"
+AGENTDOCK_VERSION="0.3.3"
 DEFAULT_AGENT_CLI="hermes"
 HERMES_INSTALL_URL="https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh"
+AGENTDOCK_UPDATE_REPO="${AGENTDOCK_UPDATE_REPO:-https://github.com/DeclanJeon/agentdock.git}"
+AGENTDOCK_UPDATE_REF="${AGENTDOCK_UPDATE_REF:-main}"
 CLI_NAME="$(basename "$0")"
 SCRIPT_PATH="${BASH_SOURCE[0]}"
 while [[ -L "$SCRIPT_PATH" ]]; do
@@ -6139,38 +6141,86 @@ cmd_install() {
   esac
 }
 
+agentdock_install_prefix() {
+  if [[ "$INSTALL_ROOT" == */share/agentdock ]]; then
+    cd "$INSTALL_ROOT/../.." && pwd
+  else
+    printf '%s\n' "${AGENTDOCK_PREFIX:-$HOME/.local}"
+  fi
+}
+
+agentdock_run_installer() {
+  local source_root="$1" prefix="$2"
+  [[ -x "$source_root/install.sh" ]] || die "updated source does not contain an executable install.sh"
+  "$source_root/install.sh" --prefix "$prefix" --skip-hermes
+}
+
 cmd_update() {
-  local check=0 yes=0 current latest
+  local check=0 yes=0 prefix current latest tmp new_commit branch
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --check) check=1; shift ;;
-      --yes) yes=1; shift ;;
-      *) shift ;;
+      --yes) yes=1; shift ;; # kept for backward compatibility; update runs by default
+      *) die "usage: agentdock update [--check|--yes]" ;;
     esac
   done
+  have git || die "git is required for agentdock update"
+  prefix="$(agentdock_install_prefix)"
+
   if git -C "$INSTALL_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     current="$(git -C "$INSTALL_ROOT" rev-parse --short HEAD 2>/dev/null || printf unknown)"
-    git -C "$INSTALL_ROOT" fetch --tags origin >/dev/null 2>&1 || true
-    latest="$(git -C "$INSTALL_ROOT" rev-parse --short origin/main 2>/dev/null || printf unknown)"
-    if [[ "$check" == 1 || "$yes" != 1 ]]; then
-      say "AgentDock version: $AGENTDOCK_VERSION"
-      say "Current source commit: $current"
-      say "Latest origin/main: $latest"
-      [[ "$yes" == 1 ]] || say "Run: agentdock update --yes"
+    branch="$(git -C "$INSTALL_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || printf HEAD)"
+    if ! git -C "$INSTALL_ROOT" fetch --tags origin "$AGENTDOCK_UPDATE_REF" >/dev/null 2>&1; then
+      die "failed to fetch origin/$AGENTDOCK_UPDATE_REF from $INSTALL_ROOT"
+    fi
+    latest="$(git -C "$INSTALL_ROOT" rev-parse --short "origin/$AGENTDOCK_UPDATE_REF" 2>/dev/null || printf unknown)"
+    say "AgentDock version: $AGENTDOCK_VERSION"
+    say "Current source commit: $current"
+    say "Latest origin/$AGENTDOCK_UPDATE_REF: $latest"
+    if [[ "$check" == 1 ]]; then
+      if [[ "$current" == "$latest" ]]; then
+        say "AgentDock is already up to date."
+      else
+        say "Update available. Run: agentdock update"
+      fi
       return 0
     fi
-    git -C "$INSTALL_ROOT" pull --ff-only
-    if [[ -x "$INSTALL_ROOT/install.sh" ]]; then
-      "$INSTALL_ROOT/install.sh"
-    else
-      say "Source updated. install.sh not found or not executable; using current source tree only."
+    if ! git -C "$INSTALL_ROOT" diff --quiet || ! git -C "$INSTALL_ROOT" diff --cached --quiet; then
+      die "local changes detected in $INSTALL_ROOT; commit/stash them before updating"
     fi
-    say "AgentDock updated from source commit $current to $(git -C "$INSTALL_ROOT" rev-parse --short HEAD 2>/dev/null || printf unknown)"
-  else
-    say "AgentDock version: $AGENTDOCK_VERSION"
-    say "This install is not backed by a git source tree at $INSTALL_ROOT."
-    say "Install/update from the release source or rerun install.sh from your downloaded AgentDock package."
+    if [[ "$current" == "$latest" ]]; then
+      say "Source tree is already up to date; reinstalling current AgentDock files."
+    else
+      git -C "$INSTALL_ROOT" pull --ff-only origin "$AGENTDOCK_UPDATE_REF"
+    fi
+    if [[ -x "$INSTALL_ROOT/install.sh" ]]; then
+      agentdock_run_installer "$INSTALL_ROOT" "$prefix"
+    else
+      say "Source updated on branch $branch, but install.sh was not found; no install files were refreshed."
+    fi
+    new_commit="$(git -C "$INSTALL_ROOT" rev-parse --short HEAD 2>/dev/null || printf unknown)"
+    say "AgentDock updated from source commit $current to $new_commit"
+    return 0
   fi
+
+  latest="$(git ls-remote "$AGENTDOCK_UPDATE_REPO" "refs/heads/$AGENTDOCK_UPDATE_REF" 2>/dev/null | awk '{print substr($1,1,7); exit}')"
+  [[ -n "$latest" ]] || die "failed to check $AGENTDOCK_UPDATE_REPO branch $AGENTDOCK_UPDATE_REF"
+  say "AgentDock version: $AGENTDOCK_VERSION"
+  say "Installed path: $INSTALL_ROOT"
+  say "Latest $AGENTDOCK_UPDATE_REPO#$AGENTDOCK_UPDATE_REF: $latest"
+  if [[ "$check" == 1 ]]; then
+    say "This install is not a git checkout; run: agentdock update"
+    return 0
+  fi
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/agentdock-update.XXXXXX")"
+  if ! git clone --depth 1 --branch "$AGENTDOCK_UPDATE_REF" "$AGENTDOCK_UPDATE_REPO" "$tmp/agentdock"; then
+    rm -rf "$tmp"
+    return 1
+  fi
+  agentdock_run_installer "$tmp/agentdock" "$prefix"
+  new_commit="$(git -C "$tmp/agentdock" rev-parse --short HEAD 2>/dev/null || printf "$latest")"
+  rm -rf "$tmp"
+  say "AgentDock updated from GitHub commit $new_commit"
 }
 
 cmd_uninstall() {

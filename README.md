@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/DeclanJeon/agentdock/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/DeclanJeon/agentdock/ci.yml?branch=main&label=ci&logo=github"></a>
   <a href="https://github.com/DeclanJeon/agentdock/releases"><img alt="Release" src="https://img.shields.io/github/v/release/DeclanJeon/agentdock?label=release&logo=github"></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.2-0f766e">
+  <img alt="Version" src="https://img.shields.io/badge/version-0.3.3-0f766e">
   <img alt="Runtime" src="https://img.shields.io/badge/runtime-Hermes%20Agent-111827">
   <img alt="Shell" src="https://img.shields.io/badge/shell-Bash%204%2B-4EAA25?logo=gnubash&logoColor=white">
   <img alt="tmux" src="https://img.shields.io/badge/orchestration-tmux-1f2937">
@@ -19,7 +19,7 @@
 
 ## 📖 Overview
 
-Status: Version `0.3.2` is the current CLI-only Hermes/tmux release.
+Status: Version `0.3.3` is the current CLI-only Hermes/tmux release.
 
 AgentDock는 프로젝트 디렉토리를 **로컬 멀티에이전트 작업실**로 변환합니다. 데스크톱 앱이나 브라우저 UI 없이, 순수 터미널 CLI와 tmux만으로 작동합니다.
 
@@ -142,6 +142,8 @@ adock doctor
 |---|---|
 | `adock init` | `.agentdock` + `.agent-work` 초기화 |
 | `adock setup` | tmux, Hermes 등 런타임 의존성 설치 |
+| `adock update` | GitHub 최신 AgentDock를 받아 설치 파일 갱신 |
+| `adock update --check` | 최신 GitHub 커밋 확인만 수행 |
 | `adock doctor [--json]` | 시스템 도구, Hermes, 프로젝트 상태 진단 |
 
 ### 🎯 작업 (Job)
@@ -281,8 +283,8 @@ bash tests/workspace_p05.sh                    # P0.5 지연시간 목표
 ```bash
 bash scripts/check-version.sh   # 버전 일관성 확인
 bash tests/smoke.sh             # 스모크 테스트
-git tag v0.3.2
-git push origin v0.3.2
+git tag v0.3.3
+git push origin v0.3.3
 ```
 
 ---
@@ -315,7 +317,7 @@ git push origin v0.3.2
 
 ---
 
-## ⚡ v0.3.2 변경사항
+## ⚡ v0.3.3 변경사항
 
 - 🗑️ 데스크톱 앱 전체 제거 (React, Vite, Tauri, 캐릭터 에셋)
 - 🎯 CLI-only: `adock job "..."` 중심으로 단순화
@@ -328,5 +330,5 @@ git push origin v0.3.2
 ---
 
 <p align="center">
-  <sub>AgentDock · v0.3.2 · CLI-only · Hermes/tmux local multi-agent orchestration</sub>
+  <sub>AgentDock · v0.3.3 · CLI-only · Hermes/tmux local multi-agent orchestration</sub>
 </p>
