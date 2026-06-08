@@ -3,6 +3,10 @@ set -euo pipefail
 
 AGENTDOCK_VERSION="0.3.3"
 DEFAULT_AGENT_CLI="hermes"
+DEFAULT_HERMES_PROVIDER="openai-codex"
+DEFAULT_HERMES_MODEL="gpt-5.5"
+DESIGN_TEAM_HERMES_PROVIDER="xiaomi"
+DESIGN_TEAM_HERMES_MODEL="mimo-v2.5-pro"
 HERMES_INSTALL_URL="https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh"
 AGENTDOCK_UPDATE_REPO="${AGENTDOCK_UPDATE_REPO:-https://github.com/DeclanJeon/agentdock.git}"
 AGENTDOCK_UPDATE_REF="${AGENTDOCK_UPDATE_REF:-main}"
@@ -184,9 +188,16 @@ pane_state_remove() {
 
 launch_cmd_for_detected_cli() {
   local cli="$1" configured_cmd="$2" found="${3:-}"
-  if [[ -n "$found" && "$configured_cmd" == "$cli" ]]; then
-    quote "$found"
-    return 0
+  if [[ -n "$found" ]]; then
+    if [[ "$configured_cmd" == "$cli" ]]; then
+      quote "$found"
+      return 0
+    fi
+    if [[ "$configured_cmd" == *" $cli" ]]; then
+      printf '%s ' "${configured_cmd% $cli}"
+      quote "$found"
+      return 0
+    fi
   fi
   printf '%s' "$configured_cmd"
 }
@@ -208,12 +219,12 @@ Commands:
   roles list|recommend|sync bmad
                           List/suggest role templates or sync BMAD role templates
   install <tool|cli>      Preview/run a dependency or AI CLI install command
-  init                    Initialize .agentdock and .agent-work
+  init                    Initialize .agentdock and .agent-work; optionally open tmux team panes
   role add <id>           Add a project role
   assign <role> [--cli hermes]        Assign a role to Hermes
   recruit <role> [role...] [--template <id>] Add/start Hermes roles in the running team
   team                    Show configured roles
-  start                   Launch tmux runtime (default starts every configured role)
+  start                   Launch tmux runtime (default starts every configured role; --bootstrap-only starts only the coordinator)
   stop                    Stop tmux runtime
   job "..."               Start CEO-led job intake, team recruiting, and reporting
   job report --from <role> Submit a timestamped role report to the CEO
@@ -381,12 +392,12 @@ resolved_cli() {
   return 0
 }
 
-resolved_cli_cmd() {
-  local cli="$1"
-  if [[ "$cli" == "$DEFAULT_AGENT_CLI" && ( -n "${HERMES_MODEL:-}" || -n "${HERMES_PROVIDER:-}" ) ]]; then
+resolved_cli_cmd_with_model() {
+  local cli="$1" model="${2:-${HERMES_MODEL:-}}" provider="${3:-${HERMES_PROVIDER:-}}"
+  if [[ "$cli" == "$DEFAULT_AGENT_CLI" && ( -n "$model" || -n "$provider" ) ]]; then
     local cmd="$cli"
-    [[ -n "${HERMES_PROVIDER:-}" ]] && cmd="HERMES_INFERENCE_PROVIDER=$(quote "$HERMES_PROVIDER") $cmd"
-    [[ -n "${HERMES_MODEL:-}" ]] && cmd="HERMES_INFERENCE_MODEL=$(quote "$HERMES_MODEL") $cmd"
+    [[ -n "$provider" ]] && cmd="HERMES_INFERENCE_PROVIDER=$(quote "$provider") $cmd"
+    [[ -n "$model" ]] && cmd="HERMES_INFERENCE_MODEL=$(quote "$model") $cmd"
     printf '%s\n' "$cmd"
     return 0
   fi
@@ -396,6 +407,37 @@ resolved_cli_cmd() {
   fi
   printf '%s\n' "$cli"
   return 1
+}
+
+resolved_cli_cmd() {
+  resolved_cli_cmd_with_model "$1" "${HERMES_MODEL:-}" "${HERMES_PROVIDER:-}"
+}
+
+role_is_design_team() {
+  local role="${1:-}" display="${2:-}" template="${3:-}" value
+  value="$(printf '%s %s %s' "$role" "$display" "$template" | tr '[:upper:]' '[:lower:]')"
+  case "$template" in
+    agency-ui-designer|agency-ux-architect|agency-ux-researcher|agency-whimsy-injector) return 0 ;;
+  esac
+  [[ "$value" =~ (^|[^a-z0-9])(ui|ux|designer|design|visual|whimsy)([^a-z0-9]|$) ]]
+}
+
+role_default_hermes_model() {
+  local role="$1" display="${2:-}" template="${3:-}"
+  if role_is_design_team "$role" "$display" "$template"; then
+    printf '%s\n' "$DESIGN_TEAM_HERMES_MODEL"
+  else
+    printf '%s\n' "${HERMES_MODEL:-$DEFAULT_HERMES_MODEL}"
+  fi
+}
+
+role_default_hermes_provider() {
+  local role="$1" display="${2:-}" template="${3:-}"
+  if role_is_design_team "$role" "$display" "$template"; then
+    printf '%s\n' "$DESIGN_TEAM_HERMES_PROVIDER"
+  else
+    printf '%s\n' "${HERMES_PROVIDER:-$DEFAULT_HERMES_PROVIDER}"
+  fi
 }
 
 validate_hermes_model_value() {
@@ -443,7 +485,7 @@ workspace_model_value() {
     return 0
   fi
   global_value="$(hermes_config_model_field default 2>/dev/null || true)"
-  [[ -n "$global_value" ]] && printf '%s\n' "$global_value" || printf 'gpt-5.5\n'
+  [[ -n "$global_value" ]] && printf '%s\n' "$global_value" || printf '%s\n' "$DEFAULT_HERMES_MODEL"
 }
 
 workspace_provider_value() {
@@ -453,7 +495,7 @@ workspace_provider_value() {
     return 0
   fi
   global_value="$(hermes_config_model_field provider 2>/dev/null || true)"
-  [[ -n "$global_value" ]] && printf '%s\n' "$global_value" || printf 'openai-codex\n'
+  [[ -n "$global_value" ]] && printf '%s\n' "$global_value" || printf '%s\n' "$DEFAULT_HERMES_PROVIDER"
 }
 
 workspace_model_source() {
@@ -468,7 +510,7 @@ workspace_model_source() {
 
 workspace_model_options_json() {
   cat <<'EOF'
-[{"label":"GPT-5.5 (Codex)","provider":"openai-codex","model":"gpt-5.5"},{"label":"GPT-5.3 Codex","provider":"openai-codex","model":"gpt-5.3-codex"},{"label":"GPT-5.1","provider":"openrouter","model":"openai/gpt-5.1"},{"label":"Claude Sonnet 4.6","provider":"openrouter","model":"anthropic/claude-sonnet-4.6"},{"label":"Gemini 3 Pro","provider":"openrouter","model":"google/gemini-3-pro-preview"}]
+[{"label":"GPT-5.5 (Codex)","provider":"openai-codex","model":"gpt-5.5"},{"label":"MiMo-V2.5-Pro (Design team)","provider":"xiaomi","model":"mimo-v2.5-pro"},{"label":"GPT-5.3 Codex","provider":"openai-codex","model":"gpt-5.3-codex"},{"label":"GPT-5.1","provider":"openrouter","model":"openai/gpt-5.1"},{"label":"Claude Sonnet 4.6","provider":"openrouter","model":"anthropic/claude-sonnet-4.6"},{"label":"Gemini 3 Pro","provider":"openrouter","model":"google/gemini-3-pro-preview"}]
 EOF
 }
 
@@ -1051,14 +1093,24 @@ PY
 
 set_role_runtime() {
   local root="$1" role="$2" cli="$3"
-  local file="$root/.agentdock/config.runtime" var cmd
+  local file="$root/.agentdock/config.runtime" var cmd model provider
   var="AGENT_${role//-/_}"
+  model="$(get_config_var "${var}_MODEL")"
+  provider="$(get_config_var "${var}_PROVIDER")"
+  [[ -n "$model" ]] || model="$(role_default_hermes_model "$role" "$(get_config_var "${var}_DISPLAY_NAME")")"
+  [[ -n "$provider" ]] || provider="$(role_default_hermes_provider "$role" "$(get_config_var "${var}_DISPLAY_NAME")")"
   local tmp="$file.tmp"
-  cmd="$(resolved_cli_cmd "$cli")"
-  awk -v var="$var" -v cli="$cli" -v cmd="$cmd" '
+  cmd="$(resolved_cli_cmd_with_model "$cli" "$model" "$provider")"
+  awk -v var="$var" -v cli="$cli" -v cmd="$cmd" -v model="$model" -v provider="$provider" '
     $0 ~ "^"var"_CLI=" { print var"_CLI=\""cli"\""; next }
     $0 ~ "^"var"_CMD=" { print var"_CMD=\""cmd"\""; next }
+    $0 ~ "^"var"_MODEL=" { print var"_MODEL=\""model"\""; seen_model=1; next }
+    $0 ~ "^"var"_PROVIDER=" { print var"_PROVIDER=\""provider"\""; seen_provider=1; next }
     { print }
+    END {
+      if (!seen_model) print var"_MODEL=\""model"\""
+      if (!seen_provider) print var"_PROVIDER=\""provider"\""
+    }
   ' "$file" > "$tmp"
   mv "$tmp" "$file"
 }
@@ -1934,8 +1986,10 @@ write_runtime() {
   local root="$1" project_name="$2" session="$3" layout="$4" agent_ids="$5"
   local file="$root/.agentdock/config.runtime"
   agent_ids="$(normalize_agent_ids "$agent_ids")"
-  validate_hermes_model_value "${HERMES_MODEL:-gpt-5.5}"
-  validate_hermes_provider_value "${HERMES_PROVIDER:-}"
+  local default_model="${HERMES_MODEL:-$DEFAULT_HERMES_MODEL}"
+  local default_provider="${HERMES_PROVIDER:-$DEFAULT_HERMES_PROVIDER}"
+  validate_hermes_model_value "$default_model"
+  validate_hermes_provider_value "$default_provider"
   local use_worktrees="${USE_WORKTREES:-0}"
   local work_dir="${WORK_DIR:-.agent-work}"
   local id var
@@ -1951,23 +2005,29 @@ write_runtime() {
     write_config_line OBSIDIAN_VAULT_PATH "${OBSIDIAN_VAULT_PATH:-}"
     write_config_line OBSIDIAN_JOB_DIR "${OBSIDIAN_JOB_DIR:-}"
     write_config_line AGENT_IDS "$agent_ids"
-    write_config_line HERMES_MODEL "${HERMES_MODEL:-}"
-    write_config_line HERMES_PROVIDER "${HERMES_PROVIDER:-}"
+    write_config_line HERMES_MODEL "$default_model"
+    write_config_line HERMES_PROVIDER "$default_provider"
     for id in $agent_ids; do
       var="AGENT_${id//-/_}"
-      local display cli window
+      local display cli window model provider
       display="$(get_config_var "${var}_DISPLAY_NAME")"
       cli="$(get_config_var "${var}_CLI")"
       window="$(get_config_var "${var}_WINDOW")"
+      model="$(get_config_var "${var}_MODEL")"
+      provider="$(get_config_var "${var}_PROVIDER")"
       [[ -n "$display" ]] || display="$id"
       [[ -n "$window" ]] || window="agents"
+      [[ -n "$model" ]] || model="$(role_default_hermes_model "$id" "$display")"
+      [[ -n "$provider" ]] || provider="$(role_default_hermes_provider "$id" "$display")"
       [[ -n "$cli" && "$cli" != "$DEFAULT_AGENT_CLI" ]] && cli="$DEFAULT_AGENT_CLI"
       cli="$(resolved_cli "$cli")"
       local cmd
-      cmd="$(resolved_cli_cmd "$cli")"
+      cmd="$(resolved_cli_cmd_with_model "$cli" "$model" "$provider")"
       write_config_line "${var}_DISPLAY_NAME" "$display"
       write_config_line "${var}_CLI" "$cli"
       write_config_line "${var}_CMD" "$cmd"
+      write_config_line "${var}_MODEL" "$model"
+      write_config_line "${var}_PROVIDER" "$provider"
       write_config_line "${var}_PROMPT" ".agentdock/prompts/$id.md"
       write_config_line "${var}_BOOT" ".agentdock/generated/boot-$id.md"
       write_config_line "${var}_WINDOW" "$window"
@@ -2005,15 +2065,19 @@ write_yaml() {
     local id var
     for id in $AGENT_IDS; do
       var="AGENT_${id//-/_}"
-      local display cli prompt boot window
+      local display cli prompt boot window model provider
       display="$(get_config_var "${var}_DISPLAY_NAME")"
       cli="$(get_config_var "${var}_CLI")"
       prompt="$(get_config_var "${var}_PROMPT")"
       boot="$(get_config_var "${var}_BOOT")"
       window="$(get_config_var "${var}_WINDOW")"
+      model="$(get_config_var "${var}_MODEL")"
+      provider="$(get_config_var "${var}_PROVIDER")"
       say "  - id: $id"
       say "    display_name: $display"
       say "    cli: $cli"
+      say "    provider: $provider"
+      say "    model: $model"
       say "    prompt_file: $prompt"
       say "    boot_file: $boot"
       say "    window: $window"
@@ -2424,9 +2488,11 @@ generate_boot_prompt() {
   local root="$1" id="$2"
   source_runtime "$root"
   local var="AGENT_${id//-/_}"
-  local display cli prompt boot
+  local display cli prompt boot model provider
   display="$(get_config_var "${var}_DISPLAY_NAME")"
   cli="$(get_config_var "${var}_CLI")"
+  model="$(get_config_var "${var}_MODEL")"
+  provider="$(get_config_var "${var}_PROVIDER")"
   prompt="$(get_config_var "${var}_PROMPT")"
   boot="$(get_config_var "${var}_BOOT")"
   [[ -n "$boot" ]] || boot=".agentdock/generated/boot-$id.md"
@@ -2470,6 +2536,7 @@ EOF
 - Role id: $id
 - Display name: $display
 - Assigned CLI: $cli
+- Assigned model: ${provider:+$provider / }$model
 - Project root: $root
 - AgentDock role prompt: $prompt
 
@@ -2506,6 +2573,7 @@ EOF
 - Role id: $id
 - Display name: $display
 - Assigned CLI: $cli
+- Assigned model: ${provider:+$provider / }$model
 - Project root: $root
 - Current working directory: $root
 - AgentDock project config: .agentdock/config.yml
@@ -2567,7 +2635,7 @@ regenerate_all() {
 }
 
 cmd_init() {
-  local root force=0 preset="ceo" layout="windows" roles=""
+  local root force=0 preset="ceo" layout="windows" roles="" tmux_mode=""
   root="$(project_root_arg "$@")"
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -2575,11 +2643,20 @@ cmd_init() {
       --preset) preset="${2:-ceo}"; shift 2 ;;
       --roles) roles="${2:-}"; shift 2 ;;
       --layout) layout="${2:-hybrid}"; shift 2 ;;
+      --tmux|--start-mode) tmux_mode="${2:-}"; shift 2 ;;
+      --tmux=*) tmux_mode="${1#*=}"; shift ;;
+      --start-all|--all) tmux_mode="all"; shift ;;
+      --start-single|--single|--bootstrap-only) tmux_mode="single"; shift ;;
+      --no-start|--tmux-none) tmux_mode="none"; shift ;;
       --project) shift 2 ;;
       --project=*) shift ;;
       *) shift ;;
     esac
   done
+  case "$tmux_mode" in
+    ""|all|single|none) ;;
+    *) die "invalid init tmux mode: $tmux_mode (use all, single, or none)" ;;
+  esac
   [[ ! -f "$root/.agentdock/config.runtime" || "$force" == 1 ]] || die "project already initialized; use --force"
   workspace_dirs "$root"
   local project_name session agent_ids
@@ -2603,6 +2680,25 @@ cmd_init() {
   regenerate_all "$root"
   sync_agentdock_jobs_to_obsidian "$root"
   say "Initialized AgentDock project at $root"
+  if [[ -z "$tmux_mode" && -t 0 && -t 1 ]]; then
+    local answer
+    say ""
+    say "Open tmux now?"
+    say "  1) all    - start every configured role in its own pane/window"
+    say "  2) single - start only the coordinator/orchestrator"
+    say "  3) none   - initialize files only"
+    read -r -p "Choose [all/single/none] (default: single): " answer || answer=""
+    case "${answer,,}" in
+      1|a|all|full|team|전체) tmux_mode="all" ;;
+      3|n|no|none|skip|안함) tmux_mode="none" ;;
+      *) tmux_mode="single" ;;
+    esac
+  fi
+  case "$tmux_mode" in
+    all) cmd_start --all --project "$root" ;;
+    single) cmd_start --bootstrap-only --project "$root" ;;
+    none|"") ;;
+  esac
 }
 
 role_exists() {
@@ -2630,10 +2726,14 @@ cmd_role_add() {
   cli="$(resolved_cli "$cli")"
   role_exists "$root" "$role" && die "role already exists: $role"
   source_runtime "$root"
-  local var="AGENT_${role//-/_}" cmd="$(resolved_cli_cmd "$cli")"
+  local var="AGENT_${role//-/_}" role_model role_provider
+  role_model="$(role_default_hermes_model "$role" "${display:-$role}")"
+  role_provider="$(role_default_hermes_provider "$role" "${display:-$role}")"
   set_config_var "${var}_DISPLAY_NAME" "${display:-$role}"
   set_config_var "${var}_CLI" "$cli"
-  set_config_var "${var}_CMD" "$cmd"
+  set_config_var "${var}_MODEL" "$role_model"
+  set_config_var "${var}_PROVIDER" "$role_provider"
+  set_config_var "${var}_CMD" "$(resolved_cli_cmd_with_model "$cli" "$role_model" "$role_provider")"
   set_config_var "${var}_WINDOW" "agents"
   write_runtime "$root" "$PROJECT_NAME" "$SESSION_NAME" "$LAYOUT" "$AGENT_IDS $role"
   regenerate_all "$root"
@@ -2666,10 +2766,14 @@ recruit_role() {
   local run_cmd="$(resolved_cli_cmd "$cli")"
   if ! role_exists "$root" "$role"; then
     source_runtime "$root"
-    local var="AGENT_${role//-/_}"
+    local var="AGENT_${role//-/_}" role_model role_provider
+    role_model="$(role_default_hermes_model "$role" "${display:-$role}" "$template")"
+    role_provider="$(role_default_hermes_provider "$role" "${display:-$role}" "$template")"
     set_config_var "${var}_DISPLAY_NAME" "${display:-$role}"
     set_config_var "${var}_CLI" "$cli"
-    set_config_var "${var}_CMD" "$run_cmd"
+    set_config_var "${var}_MODEL" "$role_model"
+    set_config_var "${var}_PROVIDER" "$role_provider"
+    set_config_var "${var}_CMD" "$(resolved_cli_cmd_with_model "$cli" "$role_model" "$role_provider")"
     set_config_var "${var}_WINDOW" "agents"
     write_runtime "$root" "$PROJECT_NAME" "$SESSION_NAME" "$LAYOUT" "$AGENT_IDS $role"
     [[ "${AGENTDOCK_BATCH_RECRUIT:-0}" == 1 ]] || regenerate_all "$root"
@@ -2833,13 +2937,15 @@ cmd_team() {
   source_runtime "$root"
   say "AgentDock Team: $PROJECT_NAME"
   say ""
-  printf '%-22s %-12s %-10s\n' "Role" "CLI" "Status"
+  printf '%-22s %-12s %-28s %-10s\n' "Role" "CLI" "Model" "Status"
   for id in $AGENT_IDS; do
     var="AGENT_${id//-/_}"
-    local cli
+    local cli model provider
     cli="$(get_config_var "${var}_CLI")"
+    model="$(get_config_var "${var}_MODEL")"
+    provider="$(get_config_var "${var}_PROVIDER")"
     IFS=$'\t' read -r _ status found version < <(detect_adapter_cached "$cli")
-    printf '%-22s %-12s %-10s\n' "$id" "$cli" "$status"
+    printf '%-22s %-12s %-28s %-10s\n' "$id" "$cli" "${provider:+$provider/}$model" "$status"
   done
 }
 
@@ -5934,15 +6040,20 @@ persist_hermes_global_model() {
 }
 
 apply_hermes_model_to_running_roles() {
-  local root="$1" model="$2" provider="${3:-}" role pane first=1 applied_count=0 command
+  local root="$1" model="$2" provider="${3:-}" role pane first=1 applied_count=0 command role_model role_provider var
   local applied_json=""
   have tmux || { printf '0\t[]\n'; return 0; }
-  command="/model $model"
-  [[ -n "$provider" ]] && command="$command --provider $provider"
-  command="$command --global"
   for role in $AGENT_IDS; do
     pane="$(cd "$root" && tmux_target_for_role "$role" 1 "$root" || true)"
     [[ -n "$pane" ]] || continue
+    var="AGENT_${role//-/_}"
+    role_model="$(get_config_var "${var}_MODEL")"
+    role_provider="$(get_config_var "${var}_PROVIDER")"
+    [[ -n "$role_model" ]] || role_model="$model"
+    [[ -n "$role_provider" ]] || role_provider="$provider"
+    command="/model $role_model"
+    [[ -n "$role_provider" ]] && command="$command --provider $role_provider"
+    command="$command --global"
     tmux send-keys -t "$pane" "$command" C-m || continue
     [[ "$first" == 1 ]] || applied_json="$applied_json, "
     first=0
@@ -5992,6 +6103,7 @@ cmd_workspace_model() {
   HERMES_MODEL="$model"
   HERMES_PROVIDER="$provider"
   write_runtime "$root" "$PROJECT_NAME" "$SESSION_NAME" "$LAYOUT" "$AGENT_IDS"
+  source_runtime "$root"
   if [[ "$persist_global" == 1 ]]; then
     if persist_hermes_global_model "$model" "$provider"; then
       global_persisted=true
